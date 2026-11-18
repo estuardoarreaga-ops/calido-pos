@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Salón y Para Llevar - Cálido Café</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body class="bg-slate-100 p-3 md:p-6 font-sans min-h-screen space-y-8">
+
+<!-- Encabezado General -->
+<div class="flex justify-between items-center">
+    <div>
+        <h2 class="text-xl font-bold text-slate-800">Mapa del Salón y Órdenes Para Llevar</h2>
+        <p class="text-xs text-slate-500">Gestiona mesas ocupadas o pedidos individuales para llevar, edita comensales y cobra por separado o junto</p>
+    </div>
+    <button onclick="actualizarTodo()" class="bg-slate-800 text-white font-bold px-3 py-2 rounded-xl text-xs flex items-center gap-2 shadow hover:bg-slate-700">
+        <i class="fa-solid fa-arrows-rotate"></i> Actualizar Todo
+    </button>
+</div>
+
+<!-- SECCIÓN 1: MESAS DEL SALÓN -->
+<section class="space-y-3">
+    <h3 class="text-xs font-extrabold text-slate-500 uppercase tracking-wider flex items-center gap-2">
+        <i class="fa-solid fa-chair text-amber-600"></i> Mesas en Salón
+    </h3>
+    <div id="gridMesasSalon" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-4"></div>
+</section>
+
+<!-- SECCIÓN 2: ÓRDENES PARA LLEVAR (INDEPENDIENTES) -->
+<section class="space-y-3 border-t border-slate-200 pt-6">
+    <div class="flex justify-between items-center">
+        <h3 class="text-xs font-extrabold text-cyan-800 uppercase tracking-wider flex items-center gap-2">
+            <i class="fa-solid fa-bag-shopping text-cyan-600 text-sm"></i> Pedidos Para Llevar Activos (Por Separado)
+            <span id="badgeContadorLlevar" class="bg-cyan-600 text-white text-[10px] font-black px-2 py-0.5 rounded-full">0</span>
+        </h3>
+        <a href="pos.html" class="text-xs font-bold text-cyan-700 hover:underline flex items-center gap-1">
+            <i class="fa-solid fa-plus"></i> Nuevo Pedido en POS
+        </a>
+    </div>
+    <div id="gridOrdenesLlevar" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4"></div>
+</section>
+
+<!-- MODAL DETALLE DE MESA / PARA LLEVAR Y NOMBRES DE COMENSALES -->
+<div id="modalDetalleMesa" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm hidden flex justify-center items-center z-50 p-4">
+    <div class="bg-white rounded-2xl p-5 w-full max-w-md shadow-2xl space-y-4">
+        <div class="flex justify-between items-center border-b pb-2">
+            <div>
+                <h3 class="text-base font-extrabold text-slate-800" id="lblTituloMesaModal">Mesa 1</h3>
+                <p class="text-[11px] text-slate-500 font-bold" id="lblClienteMesaModal">Cliente: Mostrador</p>
+            </div>
+            <button onclick="cerrarModal('modalDetalleMesa')" class="text-slate-400 hover:text-slate-600">
+                <i class="fa-solid fa-xmark text-lg"></i>
+            </button>
+        </div>
+
+        <div class="bg-amber-50 border border-amber-200 p-2.5 rounded-xl text-[11px] text-amber-900 flex items-center gap-2">
+            <i class="fa-solid fa-users text-amber-600 text-sm"></i>
+            <span>Asigna el nombre de la persona a cada producto para dividir la cuenta.</span>
+        </div>
+
+        <div class="space-y-2 max-h-[260px] overflow-y-auto pr-1 text-xs" id="listaItemsMesaDetalle"></div>
+
+        <div class="border-t pt-2 space-y-1 text-xs">
+            <div class="flex justify-between font-extrabold text-slate-800 text-sm">
+                <span>Total Consumo Orden:</span>
+                <span id="lblTotalConsumoMesa" class="text-indigo-600 font-black">Q 0.00</span>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-2 border-t pt-3">
+            <button onclick="cobrarFiltroPersona()" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2.5 rounded-xl text-xs flex justify-center items-center gap-1 shadow">
+                <i class="fa-solid fa-receipt"></i> Cobrar por Comensal
+            </button>
+            <button onclick="cobrarMesaCompleta()" class="bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2.5 rounded-xl text-xs flex justify-center items-center gap-1 shadow">
+                <i class="fa-solid fa-cash-register"></i> Cobrar Orden Completa
+            </button>
+        </div>
+    </div>
+</div>
+
+<script>
+    let claveAlmacenamientoActual = null; // Puede ser 'orden_mesa_1' o 'orden_llevar_173187...'
+    let tipoOrdenActual = 'MESA'; // 'MESA' o 'LLEVAR'
+    let idReferenciaActual = null;
+    let itemsMesaActual = [];
+
+    const mesasPorDefecto = ['1', '2', '3', '4', '5'];
+
+    window.onload = function() {
+        actualizarTodo();
+    };
+
+    function actualizarTodo() {
+        cargarEstadoMesas();
+        cargarOrdenesParaLlevar();
+    }
+
+    function abrirModal(id) { document.getElementById(id).classList.remove('hidden'); }
+    function cerrarModal(id) { document.getElementById(id).classList.add('hidden'); }
+
+    // --- 1. CARGAR MESAS DEL SALÓN ---
+    async function cargarEstadoMesas() {
+        const grid = document.getElementById('gridMesasSalon');
+        grid.innerHTML = '';
+
+        let mesasBase = [];
+        try {
+            const res = await fetch('/api/mesas');
+            if (res.ok) {
+                const data = await res.json();
+                if (data && data.length > 0) {
+                    mesasBase = data.map(m => String(m.numeroMesa || m.numero || m.id));
+                }
+            }
+        } catch(e){}
+
+        if (mesasBase.length === 0) {
+            try {
+                const locales = JSON.parse(localStorage.getItem('global_mesas_config'));
+                if (locales && locales.length > 0) mesasBase = locales;
+            } catch(e){}
+        }
+
+        if (mesasBase.length === 0) mesasBase = mesasPorDefecto;
+
+        // Filtrar para no dibujar "Para Llevar" como una mesa física única
+        mesasBase = mesasBase.filter(m => !String(m).toLowerCase().includes('llevar'));
+
+        mesasBase.forEach(mNum => {
+            const claveMesa = `orden_mesa_${mNum}`;
+            const ordenRaw = localStorage.getItem(claveMesa);
+            let ocupada = false;
+            let total = 0;
+            let numItems = 0;
+
+            if (ordenRaw) {
+                try {
+                    const data = JSON.parse(ordenRaw);
+                    if (data.items && data.items.length > 0) {
+                        ocupada = true;
+                        numItems = data.items.length;
+                        total = data.items.reduce((acc, it) => acc + (parseFloat(it.precio || it.precioVenta || 0) * (parseInt(it.cantidad) || 1)), 0);
+                    }
+                } catch(e){}
+            }
+
+            grid.innerHTML += `
+                <div onclick="clickMesaSalon('${mNum}', ${ocupada})" class="p-4 rounded-2xl border-2 transition cursor-pointer flex flex-col justify-between space-y-3 shadow-sm ${
+                    ocupada ? 'bg-amber-50 border-amber-400 hover:border-amber-500' : 'bg-white border-slate-200 hover:border-indigo-400'
+                }">
+                    <div class="flex justify-between items-start">
+                        <span class="font-black text-slate-800 text-sm">🪑 Mesa ${mNum}</span>
+                        <span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                            ocupada ? 'bg-amber-200 text-amber-900' : 'bg-slate-100 text-slate-500'
+                        }">${ocupada ? 'OCUPADA' : 'LIBRE'}</span>
+                    </div>
+
+                    <div class="text-xs space-y-1">
+                        <p class="text-slate-500 text-[11px] font-semibold">${ocupada ? `${numItems} productos ordenados` : 'Disponible'}</p>
+                        <p class="font-extrabold text-indigo-600 text-sm">${ocupada ? `Q ${total.toFixed(2)}` : 'Q 0.00'}</p>
+                    </div>
+                </div>
+            `;
+        });
+    }
+
+    // --- 2. CARGAR ÓRDENES PARA LLEVAR POR SEPARADO ---
+    function cargarOrdenesParaLlevar() {
+        const grid = document.getElementById('gridOrdenesLlevar');
+        const badgeContador = document.getElementById('badgeContadorLlevar');
+        grid.innerHTML = '';
+
+        const ordenesLlevar = [];
+
+        for (let i = 0; i < localStorage.length; i++) {
+            const clave = localStorage.key(i);
+            if (clave && clave.startsWith('orden_llevar_')) {
+                try {
+                    const data = JSON.parse(localStorage.getItem(clave));
+                    if (data && data.items && data.items.length > 0) {
+                        ordenesLlevar.push({ clave, ...data });
+                    }
+                } catch(e){}
+            }
+        }
+
+        // Ordenar por las más recientes primero
+        ordenesLlevar.sort((a, b) => b.clave.localeCompare(a.clave));
+        badgeContador.innerText = ordenesLlevar.length;
+
+        if (ordenesLlevar.length === 0) {
+            grid.innerHTML = `
+                <div class="col-span-full bg-white/60 border border-dashed border-slate-300 rounded-2xl p-6 text-center text-xs text-slate-400">
+                    <i class="fa-solid fa-bag-shopping text-2xl mb-1 text-slate-300"></i>
+                    <p class="font-semibold">No hay pedidos Para Llevar pendientes de cobro.</p>
+                </div>
+            `;
+            return;
+        }
+
+        ordenesLlevar.forEach(ord => {
+            const total = ord.items.reduce((acc, it) => acc + (parseFloat(it.precio || it.precioVenta || 0) * (parseInt(it.cantidad) || 1)), 0);
+            const numItems = ord.items.length;
+
+            grid.innerHTML += `
+                <div onclick="clickOrdenLlevar('${ord.clave}')" class="p-4 rounded-2xl border-2 bg-cyan-50/70 border-cyan-400 hover:border-cyan-600 transition cursor-pointer flex flex-col justify-between space-y-3 shadow-sm">
+                    <div class="flex justify-between items-start gap-2">
+                        <div>
+                            <span class="font-black text-slate-800 text-sm flex items-center gap-1.5">
+                                🛍️ ${ord.cliente || 'Para Llevar'}
+                            </span>
+                            <span class="text-[10px] text-cyan-800 font-bold"><i class="fa-regular fa-clock"></i> ${ord.hora || 'En curso'}</span>
+                        </div>
+                        <span class="px-2 py-0.5 rounded-full text-[10px] font-black bg-cyan-200 text-cyan-900 whitespace-nowrap">
+                            LLEVAR
+                        </span>
+                    </div>
+
+                    <div class="text-xs space-y-1 border-t border-cyan-200/60 pt-2">
+                        <p class="text-slate-600 text-[11px] font-semibold">${numItems} artículos en bolsa</p>
+                        <p class="font-extrabold text-cyan-800 text-sm">Q ${total.toFixed(2)}</p>
+                    </div>
+                </div>
+            `;
+        });
+    }
+
+    // --- ABRIR DETALLE DE MESA ---
+    function clickMesaSalon(numMesa, ocupada) {
+        if (!ocupada) {
+            alert(`Mesa ${numMesa} está libre. Registra los pedidos desde el POS.`);
+            return;
+        }
+
+        tipoOrdenActual = 'MESA';
+        idReferenciaActual = numMesa;
+        claveAlmacenamientoActual = `orden_mesa_${numMesa}`;
+
+        const dataRaw = localStorage.getItem(claveAlmacenamientoActual);
+        let cliente = "Cliente General";
+        itemsMesaActual = [];
+
+        if (dataRaw) {
+            try {
+                const parsed = JSON.parse(dataRaw);
+                cliente = parsed.cliente || "Cliente General";
+                itemsMesaActual = parsed.items || [];
+            } catch(e){}
+        }
+
+        document.getElementById('lblTituloMesaModal').innerText = `🪑 Mesa ${numMesa}`;
+        document.getElementById('lblClienteMesaModal').innerText = `Cliente: ${cliente}`;
+
+        renderItemsMesaModal();
+        abrirModal('modalDetalleMesa');
+    }
+
+    // --- ABRIR DETALLE DE PEDIDO PARA LLEVAR ---
+    function clickOrdenLlevar(claveLlevar) {
+        tipoOrdenActual = 'LLEVAR';
+        idReferenciaActual = claveLlevar;
+        claveAlmacenamientoActual = claveLlevar;
+
+        const dataRaw = localStorage.getItem(claveLlevar);
+        let cliente = "Para Llevar";
+        itemsMesaActual = [];
+
+        if (dataRaw) {
+            try {
+                const parsed = JSON.parse(dataRaw);
+                cliente = parsed.cliente || "Para Llevar";
+                itemsMesaActual = parsed.items || [];
+            } catch(e){}
+        }
+
+        document.getElementById('lblTituloMesaModal').innerText = `🛍️ Para Llevar - ${cliente}`;
+        document.getElementById('lblClienteMesaModal').innerText = `Orden Individual Activa`;
+
+        renderItemsMesaModal();
+        abrirModal('modalDetalleMesa');
+    }
+
+    function renderItemsMesaModal() {
+        const cont = document.getElementById('listaItemsMesaDetalle');
+        cont.innerHTML = '';
+        let total = 0;
+
+        itemsMesaActual.forEach((it, idx) => {
+            const precioItem = parseFloat(it.precio || it.precioVenta || 0);
+            const sub = precioItem * (parseInt(it.cantidad) || 1);
+            total += sub;
+            const nombreComensal = it.comensal || 'Persona 1';
+
+            cont.innerHTML += `
+                <div class="p-2.5 bg-slate-50 border rounded-xl flex items-center justify-between gap-2">
+                    <div class="flex-1">
+                        <p class="font-bold text-slate-800 text-xs">${it.nombre}</p>
+                        <p class="text-[10px] text-amber-600 font-semibold">${it.extras ? it.extras.join(', ') : ''}</p>
+                        <span class="font-black text-indigo-600 text-xs">Q ${sub.toFixed(2)}</span>
+                    </div>
+
+                    <div class="flex flex-col items-end gap-1">
+                        <label class="text-[9px] font-bold text-slate-400 uppercase">Nombre Comensal:</label>
+                        <input type="text" value="${nombreComensal}" onchange="cambiarNombreComensalDirecto(${idx}, this.value)"
+                               placeholder="Ej. Carlos"
+                               class="bg-white border border-indigo-200 rounded-lg px-2 py-1 text-xs font-bold text-indigo-700 w-28 text-right focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+                    </div>
+                </div>
+            `;
+        });
+
+        document.getElementById('lblTotalConsumoMesa').innerText = `Q ${total.toFixed(2)}`;
+    }
+
+    function cambiarNombreComensalDirecto(index, nuevoNombre) {
+        const valLimpio = nuevoNombre.trim() || 'Persona 1';
+        if (itemsMesaActual[index]) {
+            itemsMesaActual[index].comensal = valLimpio;
+
+            const dataGuardada = JSON.parse(localStorage.getItem(claveAlmacenamientoActual) || '{}');
+            dataGuardada.items = itemsMesaActual;
+
+            localStorage.setItem(claveAlmacenamientoActual, JSON.stringify(dataGuardada));
+        }
+    }
+
+    function cobrarMesaCompleta() {
+        if (!idReferenciaActual) return;
+        if (tipoOrdenActual === 'LLEVAR') {
+            window.location.href = `pos.html?llevar=${encodeURIComponent(idReferenciaActual)}&modo=completo`;
+        } else {
+            window.location.href = `pos.html?mesa=${idReferenciaActual}&modo=completo`;
+        }
+    }
+
+    function cobrarFiltroPersona() {
+        if (!idReferenciaActual) return;
+        if (tipoOrdenActual === 'LLEVAR') {
+            window.location.href = `pos.html?llevar=${encodeURIComponent(idReferenciaActual)}&modo=separado`;
+        } else {
+            window.location.href = `pos.html?mesa=${idReferenciaActual}&modo=separado`;
+        }
+    }
+</script>
+</body>
+</html>

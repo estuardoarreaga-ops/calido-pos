@@ -1,0 +1,1687 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=2.0, user-scalable=yes">
+    <title>POS - Cálido Café</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <style>
+        html, body {
+            overflow-y: auto !important;
+            overflow-x: hidden !important;
+            -webkit-overflow-scrolling: touch;
+            min-height: 100vh;
+        }
+
+        #ticketImpresionArea { display: none; }
+
+        /* ESTILOS EXCLUSIVOS PARA IMPRESORA TÉRMICA (ROLLO 80MM / 58MM) */
+        @media print {
+            @page {
+                size: 80mm auto;
+                margin: 0mm;
+            }
+            html, body {
+                width: 80mm !important;
+                min-height: auto !important;
+                margin: 0 !important;
+                padding: 0 !important;
+                background: #ffffff !important;
+            }
+            body * { visibility: hidden !important; }
+            #ticketImpresionArea, #ticketImpresionArea * { visibility: visible !important; }
+            #ticketImpresionArea {
+                display: block !important;
+                position: absolute !important;
+                left: 0 !important;
+                top: 0 !important;
+                width: 72mm !important;
+                padding: 3mm 4mm !important;
+                font-family: 'Courier New', Courier, monospace !important;
+                color: #000000 !important;
+                background-color: #ffffff !important;
+                font-size: 12px !important;
+                line-height: 1.3 !important;
+            }
+            .ticket-termico { width: 100%; box-sizing: border-box; }
+            .t-center { text-align: center; }
+            .t-right { text-align: right; }
+            .t-left { text-align: left; }
+            .t-bold { font-weight: bold; }
+            .t-sep { border-top: 1px dashed #000000; margin: 6px 0; }
+            .t-sep-doble { border-top: 2px solid #000000; margin: 6px 0; }
+            .tabla-termica { width: 100%; border-collapse: collapse; font-size: 11px; }
+            .tabla-termica th { border-bottom: 1px dashed #000000; padding: 4px 0; font-weight: bold; text-transform: uppercase; }
+            .tabla-termica td { padding: 4px 0; vertical-align: top; }
+        }
+    </style>
+</head>
+<body class="bg-slate-100 p-2 md:p-4 font-sans min-h-screen pb-16">
+
+<!-- Topbar Estado de Caja -->
+<div class="bg-slate-800 text-white rounded-2xl shadow-md p-3 flex flex-wrap justify-between items-center gap-2 text-xs mb-2">
+    <div class="flex items-center gap-2 flex-wrap">
+        <span class="font-extrabold uppercase text-slate-300 tracking-wider">CAJA:</span>
+        <span id="badgeEstadoCaja" class="bg-rose-500 text-white font-extrabold px-2.5 py-0.5 rounded-full text-[11px] uppercase shadow-sm">
+            CERRADO
+        </span>
+        <span class="text-slate-400 font-semibold">|</span>
+        <span id="lblMontoInicialCaja" class="text-slate-300 font-bold">Fondo: Q 0.00</span>
+        <span id="lblInfoAmanecer" class="hidden sm:inline-block text-[11px] text-amber-300 font-semibold ml-1"></span>
+    </div>
+    <div class="flex gap-1.5 flex-wrap">
+        <button id="btnHistorialTurno" onclick="abrirModalHistorialTurno()" class="bg-indigo-600 hover:bg-indigo-500 text-white font-bold px-2.5 py-1.5 rounded-xl flex items-center gap-1 shadow text-xs">
+            <i class="fa-solid fa-ban"></i> Cancelar / Tickets
+        </button>
+        <button id="btnGastoCaja" onclick="abrirModalGastoCaja()" class="hidden bg-amber-600 hover:bg-amber-500 text-white font-bold px-2.5 py-1.5 rounded-xl flex items-center gap-1 shadow text-xs" title="Registrar salida de efectivo (hielo, pan, insumos)">
+            <i class="fa-solid fa-money-bill-transfer"></i> Salida Efectivo
+        </button>
+        <button id="btnAbrirGaveta" onclick="abrirGavetaSinVenta()" class="hidden bg-slate-700 hover:bg-slate-600 text-slate-200 font-bold px-2.5 py-1.5 rounded-xl flex items-center gap-1 shadow text-xs" title="Enviar pulso de apertura al cajón de dinero">
+            <i class="fa-solid fa-inbox"></i> Gaveta
+        </button>
+        <button id="btnAbrirCaja" onclick="prepararModalAperturaCaja()" class="bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold px-3 py-1.5 rounded-xl flex items-center gap-1 shadow text-xs">
+            <i class="fa-solid fa-lock-open"></i> Abrir Caja
+        </button>
+        <button id="btnCerrarCaja" onclick="abrirModalCierreCaja()" class="bg-rose-600 hover:bg-rose-500 text-white font-extrabold px-3 py-1.5 rounded-xl flex items-center gap-1 shadow text-xs hidden">
+            <i class="fa-solid fa-lock"></i> Arqueo / Cierre
+        </button>
+    </div>
+</div>
+
+<!-- Banner Bloqueo cuando la caja está cerrada -->
+<div id="bannerCajaCerrada" class="hidden bg-rose-600 text-white rounded-2xl p-3 mb-3 flex items-center justify-between shadow-lg">
+    <div class="flex items-center gap-2.5 text-xs">
+        <i class="fa-solid fa-triangle-exclamation text-lg text-amber-300"></i>
+        <div>
+            <p class="font-black uppercase">Caja Cerrada — Ventas Bloqueadas</p>
+            <p class="text-[11px] text-rose-100" id="lblDetalleUltimoCierreBanner">Debes aperturar la caja con el fondo inicial para comenzar a tomar pedidos o cobrar.</p>
+        </div>
+    </div>
+    <button onclick="prepararModalAperturaCaja()" class="bg-white text-rose-700 font-black px-3 py-1.5 rounded-xl text-xs shadow hover:bg-rose-50 whitespace-nowrap">
+        Aperturar Ahora
+    </button>
+</div>
+
+<!-- Layout Adaptable -->
+<div class="grid grid-cols-1 lg:grid-cols-12 gap-2.5 items-start">
+    <div class="lg:col-span-7 bg-white rounded-2xl shadow-sm border border-slate-200/60 p-3 flex flex-col">
+        <div class="relative mb-2">
+            <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400">
+                <i class="fa-solid fa-magnifying-glass text-xs"></i>
+            </span>
+            <input type="text" id="txtBuscarPos" onkeyup="renderProductosPos()" placeholder="Buscar producto, bebida o plato..."
+                   class="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+        </div>
+        <div id="contenedorCategoriasPos" class="flex gap-1 overflow-x-auto text-xs font-bold pb-2 mb-1"></div>
+        <div id="gridProductosPos" class="grid grid-cols-2 sm:grid-cols-3 gap-2 overflow-y-auto max-h-[54vh] pr-1"></div>
+    </div>
+
+    <div class="lg:col-span-5 bg-white rounded-2xl shadow-sm border border-slate-200/60 p-3.5 block w-full overflow-visible">
+        <div class="flex justify-between items-center pb-2 border-b border-slate-100">
+            <h3 class="font-extrabold text-slate-800 text-xs flex items-center gap-1.5">
+                <i class="fa-solid fa-cart-shopping text-indigo-600"></i> Orden Actual
+                <span id="badgeOrigenOrden" class="hidden bg-cyan-100 text-cyan-800 text-[10px] font-black px-2 py-0.5 rounded-md"></span>
+            </h3>
+            <button onclick="limpiarOrden()" class="text-xs font-bold text-rose-500 hover:text-rose-700">
+                Vaciar
+            </button>
+        </div>
+
+        <div class="bg-indigo-50/70 p-2 rounded-xl my-2 flex items-center justify-between text-xs border border-indigo-100">
+            <span class="font-bold text-indigo-900 text-[11px]"><i class="fa-solid fa-user text-indigo-600"></i> Asignar a Nombre:</span>
+            <input type="text" id="txtComensalNombreInput" onchange="comensalActual = this.value.trim() || 'Persona 1'"
+                   placeholder="Ej. Carlos / Maria" value="Persona 1"
+                   class="bg-white border border-indigo-200 rounded-lg px-2 py-1 font-bold text-indigo-700 text-xs focus:outline-none w-36 text-right">
+        </div>
+
+        <div id="listaOrdenPos" class="divide-y divide-slate-100 my-1 pr-1 overflow-y-auto max-h-[28vh] min-h-[80px]"></div>
+
+        <div class="border-t border-slate-100 pt-2 space-y-2 bg-white mt-2">
+            <div class="space-y-0.5">
+                <div class="flex justify-between text-xs text-slate-500 font-semibold">
+                    <span>Subtotal</span>
+                    <span id="lblSubtotalPos">Q 0.00</span>
+                </div>
+                <div class="flex justify-between items-center text-base font-black text-slate-800">
+                    <span>Total</span>
+                    <span id="lblTotalPos" class="text-indigo-600 font-extrabold">Q 0.00</span>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-2 pt-1">
+                <button onclick="abrirModalSeleccionarMesa()" class="bg-amber-500 hover:bg-amber-600 active:scale-95 text-white font-extrabold py-3 px-1.5 rounded-xl text-[11px] flex justify-center items-center gap-1 shadow-md shadow-amber-500/20 cursor-pointer w-full">
+                    <i class="fa-solid fa-utensils"></i> Enviar a Mesa / Llevar
+                </button>
+                <button onclick="abrirModalCobrarVenta()" class="bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-extrabold py-3 px-1.5 rounded-xl text-[11px] flex justify-center items-center gap-1 shadow-md shadow-emerald-600/20 cursor-pointer w-full">
+                    <i class="fa-solid fa-cash-register"></i> Cobrar Directo
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- MODAL SELECCIONAR MESA O PARA LLEVAR -->
+<div id="modalSeleccionarMesa" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm hidden flex justify-center items-center z-50 p-4">
+    <div class="bg-white rounded-2xl p-5 w-full max-w-xs shadow-2xl space-y-4">
+        <h3 class="text-sm font-extrabold text-slate-800 border-b pb-2 flex items-center gap-2">
+            <i class="fa-solid fa-user-tag text-amber-500"></i> Datos del Pedido (Comanda Cocina)
+        </h3>
+        <div class="space-y-3 text-xs">
+            <div>
+                <label class="block font-bold text-slate-700 mb-1">Nombre del Cliente (Identificador):</label>
+                <input type="text" id="txtNombreClientePos" placeholder="Ej. Ana López / Pedido #1"
+                       class="w-full p-2.5 border rounded-xl bg-slate-50 font-bold text-slate-800 focus:ring-2 focus:ring-amber-500 focus:outline-none">
+                <p class="text-[10px] text-slate-400 mt-0.5">Obligatorio si es <b>Para Llevar</b> para distinguir cada bolsa.</p>
+            </div>
+            <div>
+                <label class="block font-bold text-slate-700 mb-1">Mesa o Destino:</label>
+                <select id="selectUbicacionMesaPos" class="w-full p-2.5 border rounded-xl bg-slate-50 font-bold text-slate-800 focus:ring-2 focus:ring-amber-500 focus:outline-none"></select>
+            </div>
+            <div>
+                <label class="block font-bold text-slate-700 mb-1">Forma de Pago Registrada:</label>
+                <select id="selectMetodoPagoMesa" class="w-full p-2.5 border rounded-xl bg-slate-50 font-bold text-slate-800 focus:ring-2 focus:ring-amber-500 focus:outline-none">
+                    <option value="EFECTIVO">💵 Efectivo</option>
+                    <option value="TARJETA">💳 Tarjeta / POS Bancario</option>
+                    <option value="TRANSFERENCIA">🏛️ Transferencia Bancaria</option>
+                </select>
+            </div>
+        </div>
+        <div class="flex justify-end gap-2 border-t pt-3">
+            <button onclick="cerrarModal('modalSeleccionarMesa')" class="px-3 py-2 text-xs font-semibold text-slate-500 hover:bg-slate-100 rounded-xl">Cancelar</button>
+            <button id="btnConfirmarMesa" onclick="confirmarEnvioAMesa()" class="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-xl font-bold text-xs shadow flex items-center gap-1">
+                <span>Enviar a Cocina</span>
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- MODAL COBRAR VENTA (CON BILLETES RÁPIDOS) -->
+<div id="modalCobrarVenta" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm hidden flex justify-center items-center z-50 p-4">
+    <div class="bg-white rounded-2xl p-5 w-full max-w-sm shadow-2xl space-y-4">
+        <h3 class="text-sm font-extrabold text-slate-800 border-b pb-2 flex items-center justify-between">
+            <span><i class="fa-solid fa-receipt text-emerald-600"></i> Cobrar Venta</span>
+            <span id="lblCobroTotal" class="text-indigo-600 font-black text-base">Q 0.00</span>
+        </h3>
+
+        <div class="bg-slate-50 p-2 rounded-xl border text-xs space-y-1">
+            <label class="block font-bold text-slate-700">Filtrar cobro por Comensal:</label>
+            <select id="selectCobroComensal" onchange="filtrarCobroPorComensal(this.value)" class="w-full p-1.5 border rounded-lg bg-white font-bold text-slate-800"></select>
+        </div>
+
+        <div class="space-y-3 text-xs">
+            <div>
+                <label class="block font-bold text-slate-700 mb-1">Método de Pago:</label>
+                <div class="grid grid-cols-3 gap-1.5">
+                    <button id="btnMetodoEfectivo" onclick="seleccionarMetodoPago('EFECTIVO')" class="py-2 border-2 border-emerald-600 bg-emerald-50 text-emerald-800 font-extrabold rounded-xl text-center text-xs">
+                        💵 Efectivo
+                    </button>
+                    <button id="btnMetodoTarjeta" onclick="seleccionarMetodoPago('TARJETA')" class="py-2 border border-slate-200 text-slate-600 font-bold rounded-xl text-center hover:bg-slate-50 text-xs">
+                        💳 Tarjeta
+                    </button>
+                    <button id="btnMetodoTransferencia" onclick="seleccionarMetodoPago('TRANSFERENCIA')" class="py-2 border border-slate-200 text-slate-600 font-bold rounded-xl text-center hover:bg-slate-50 text-xs">
+                        🏛️ Transf.
+                    </button>
+                </div>
+            </div>
+
+            <div id="cajaMontoEfectivo" class="space-y-2">
+                <label class="block font-bold text-slate-700">Monto Entregado por Cliente:</label>
+                <input type="number" step="0.01" id="txtMontoEntregado" onkeyup="calcularCambioCobro()" placeholder="0.00" class="w-full p-2.5 border-2 border-emerald-300 focus:border-emerald-600 focus:outline-none rounded-xl bg-slate-50 font-extrabold text-slate-800 text-base">
+
+                <div class="grid grid-cols-4 gap-1.5 pt-0.5">
+                    <button type="button" onclick="setBilleteRapido('EXACTO')" class="bg-slate-200 hover:bg-slate-300 text-slate-800 font-bold py-1.5 rounded-lg text-[11px]">Exacto</button>
+                    <button type="button" onclick="setBilleteRapido(50)" class="bg-slate-100 hover:bg-slate-200 border text-slate-700 font-bold py-1.5 rounded-lg text-[11px]">Q 50</button>
+                    <button type="button" onclick="setBilleteRapido(100)" class="bg-slate-100 hover:bg-slate-200 border text-slate-700 font-bold py-1.5 rounded-lg text-[11px]">Q 100</button>
+                    <button type="button" onclick="setBilleteRapido(200)" class="bg-slate-100 hover:bg-slate-200 border text-slate-700 font-bold py-1.5 rounded-lg text-[11px]">Q 200</button>
+                </div>
+
+                <div class="flex justify-between items-center pt-1 font-bold bg-emerald-50 p-2 rounded-xl border border-emerald-100">
+                    <span class="text-emerald-900">Cambio / Vuelto:</span>
+                    <span id="lblCambioCalculado" class="text-emerald-700 font-black text-base">Q 0.00</span>
+                </div>
+            </div>
+
+            <div id="cajaInfoTarjeta" class="hidden p-3 bg-slate-50 border rounded-xl text-[11px] text-slate-600">
+                <p class="font-bold text-slate-700"><i class="fa-solid fa-credit-card text-indigo-500"></i> Venta procesada en POS Bancario (No abre gaveta)</p>
+            </div>
+            <div id="cajaInfoTransferencia" class="hidden p-3 bg-slate-50 border rounded-xl text-[11px] text-slate-600">
+                <p class="font-bold text-cyan-700"><i class="fa-solid fa-building-columns text-cyan-500"></i> Transferencia bancaria verificada (No abre gaveta)</p>
+            </div>
+        </div>
+
+        <div class="flex justify-end gap-2 border-t pt-3">
+            <button onclick="cerrarModal('modalCobrarVenta')" class="px-3 py-2 text-xs font-semibold text-slate-500 hover:bg-slate-100 rounded-xl">Cancelar</button>
+            <button onclick="confirmarCobroVentaDirecta()" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-xs shadow">
+                Completar e Imprimir Ticket
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- MODAL SALIDA / GASTO DE EFECTIVO EN TURNO -->
+<div id="modalGastoCaja" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm hidden flex justify-center items-center z-50 p-4">
+    <div class="bg-white rounded-2xl p-5 w-full max-w-sm shadow-2xl space-y-4">
+        <h3 class="text-sm font-extrabold text-slate-800 border-b pb-2 flex items-center gap-2">
+            <i class="fa-solid fa-money-bill-transfer text-amber-600"></i> Registrar Salida de Efectivo (Caja Chica)
+        </h3>
+        <div class="text-xs space-y-3">
+            <div>
+                <label class="block font-bold text-slate-700 mb-1">Concepto / Motivo del Gasto:</label>
+                <input type="text" id="txtConceptoGasto" placeholder="Ej. Compra de hielo, pan, leche..." class="w-full p-2.5 border rounded-xl bg-slate-50 font-semibold text-slate-800">
+            </div>
+            <div>
+                <label class="block font-bold text-slate-700 mb-1">Monto Retirado de Gaveta (Q):</label>
+                <input type="number" step="0.01" id="txtMontoGasto" placeholder="0.00" class="w-full p-2.5 border rounded-xl bg-slate-50 font-black text-rose-600 text-base">
+            </div>
+            <p class="text-[10px] text-slate-400">Este monto se restará del efectivo esperado al realizar el cierre de caja.</p>
+        </div>
+        <div class="flex justify-end gap-2 border-t pt-3">
+            <button onclick="cerrarModal('modalGastoCaja')" class="px-3 py-1.5 text-xs font-semibold text-slate-500">Cancelar</button>
+            <button onclick="confirmarGastoCaja()" class="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl font-bold text-xs shadow">
+                Guardar Salida
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- MODAL ABRIR CAJA -->
+<div id="modalAbrirCaja" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm hidden flex justify-center items-center z-50 p-4">
+    <div class="bg-white rounded-2xl p-5 w-full max-w-sm shadow-2xl space-y-4">
+        <h3 class="text-base font-bold text-slate-800 border-b pb-2 flex items-center gap-2">
+            <i class="fa-solid fa-lock-open text-emerald-600"></i> Apertura de Caja (Nuevo Turno)
+        </h3>
+
+        <div id="boxSaldoAnteriorApertura" class="hidden bg-amber-50 border border-amber-200 p-3 rounded-xl text-xs space-y-1">
+            <p class="font-extrabold text-amber-900 flex items-center gap-1.5">
+                <i class="fa-solid fa-clock-rotate-left text-amber-600"></i> Cierre Anterior Registrado:
+            </p>
+            <p class="text-amber-800">Caja cerró con: <b id="lblMontoCierreAnterior" class="text-sm font-black">Q 0.00</b></p>
+            <p class="text-[10px] text-amber-700" id="lblFechaCierreAnterior"></p>
+        </div>
+
+        <div class="text-xs space-y-2">
+            <label class="block font-bold text-slate-700">Monto con el que amanece / abre Caja (Q):</label>
+            <input type="number" step="0.01" id="txtMontoInicial" placeholder="100.00" value="100.00" class="w-full p-2.5 border rounded-xl bg-slate-50 font-black text-emerald-600 text-base">
+            <p class="text-[10px] text-slate-400">Puedes confirmar el saldo de cierre de anoche o ajustarlo si agregaste/retiraste sencillo.</p>
+        </div>
+
+        <div class="flex justify-end gap-2 border-t pt-3">
+            <button onclick="cerrarModal('modalAbrirCaja')" class="px-3 py-1.5 text-xs font-semibold text-slate-500">Cancelar</button>
+            <button onclick="confirmarAperturaCaja()" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-xs shadow">
+                Aperturar Caja
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- MODAL CIERRE DE CAJA -->
+<div id="modalCierreCaja" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm hidden flex justify-center items-center z-50 p-4">
+    <div class="bg-white rounded-2xl p-5 w-full max-w-md shadow-2xl space-y-3">
+        <h3 class="text-base font-extrabold text-slate-800 border-b pb-2 flex items-center justify-between">
+            <span class="flex items-center gap-2"><i class="fa-solid fa-calculator text-rose-600"></i> Arqueo y Cierre de Caja</span>
+            <span class="text-[10px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded font-bold" id="lblCierreNumComandas">0 ventas</span>
+        </h3>
+
+        <div class="bg-slate-50 p-3 rounded-xl text-xs space-y-1.5 border">
+            <div class="flex justify-between items-center">
+                <span class="text-slate-500 font-semibold">Fondo Inicial (Apertura):</span>
+                <span id="lblCierreInicial" class="font-bold text-slate-800">Q 0.00</span>
+            </div>
+            <hr class="border-slate-200">
+            <p class="text-[10px] font-black uppercase text-slate-400 tracking-wider">Desglose de Ventas del Turno</p>
+            <div class="flex justify-between items-center">
+                <span class="text-slate-600 font-semibold">💵 Pagos en Efectivo:</span>
+                <span id="lblCierreVentasEfectivo" class="font-extrabold text-emerald-600">Q 0.00</span>
+            </div>
+            <div class="flex justify-between items-center">
+                <span class="text-slate-600 font-semibold">💳 Pagos con Tarjeta / POS:</span>
+                <span id="lblCierreVentasTarjeta" class="font-extrabold text-indigo-600">Q 0.00</span>
+            </div>
+            <div class="flex justify-between items-center">
+                <span class="text-slate-600 font-semibold">🏛️ Pagos por Transferencia:</span>
+                <span id="lblCierreVentasTransferencia" class="font-extrabold text-cyan-600">Q 0.00</span>
+            </div>
+            <div class="flex justify-between items-center text-rose-600">
+                <span class="font-semibold">➖ Salidas / Gastos Efectivo:</span>
+                <span id="lblCierreGastosEfectivo" class="font-extrabold">- Q 0.00</span>
+            </div>
+            <div class="flex justify-between items-center bg-white p-2 rounded-lg border border-slate-200">
+                <span class="font-bold text-slate-700">Total Vendido en el Turno:</span>
+                <span id="lblCierreTotalVendido" class="font-black text-slate-900">Q 0.00</span>
+            </div>
+            <hr class="border-slate-200">
+            <div class="flex justify-between items-center font-extrabold text-slate-800 text-sm">
+                <span>Efectivo Esperado en Gaveta:</span>
+                <span id="lblCierreEsperado" class="text-emerald-700 font-black">Q 0.00</span>
+            </div>
+            <p class="text-[10px] text-slate-400">(Fondo Inicial + Ventas Efectivo - Salidas Efectivo)</p>
+        </div>
+
+        <div class="text-xs space-y-1.5">
+            <label class="block font-bold text-slate-700">Monto Real en Efectivo con el que Cierra Caja (Q):</label>
+            <input type="number" step="0.01" id="txtEfectivoConteo" onkeyup="calcularDiferenciaCierre()" placeholder="0.00" class="w-full p-2.5 border-2 border-slate-300 focus:border-rose-500 focus:outline-none rounded-xl bg-white font-black text-slate-800 text-sm">
+            <p class="text-[10px] text-slate-500">Este monto quedará guardado para iniciar la caja mañana.</p>
+            <p id="lblDiferenciaCierre" class="text-[11px] font-bold mt-1"></p>
+        </div>
+
+        <div class="flex justify-end gap-2 border-t pt-3">
+            <button onclick="cerrarModal('modalCierreCaja')" class="px-3 py-1.5 text-xs font-semibold text-slate-500">Cancelar</button>
+            <button onclick="confirmarCierreCaja()" class="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl font-bold text-xs shadow">
+                Confirmar y Cerrar Caja
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- MODAL EXTRAS Y NOTA DINÁMICO -->
+<div id="modalExtrasPos" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm hidden flex justify-center items-center z-50 p-4">
+    <div class="bg-white rounded-2xl p-4 w-full max-w-xs shadow-2xl space-y-3">
+        <h4 class="text-xs font-bold text-slate-800 border-b pb-1.5 flex items-center gap-1.5" id="lblExtraProdTitulo">
+            <i class="fa-solid fa-sliders text-indigo-600"></i> Personalizar Producto
+        </h4>
+        <div id="contenedorListaExtrasPos" class="space-y-2 text-xs max-h-[180px] overflow-y-auto pr-1"></div>
+        <div class="text-xs pt-1">
+            <label class="block font-bold text-slate-700 mb-1">Nota para Barista / Cocina (Opcional):</label>
+            <input type="text" id="txtNotaItemPos" placeholder="Ej. Sin azúcar, tibio, vaso extra..." class="w-full p-2 border rounded-xl bg-slate-50 text-xs">
+        </div>
+        <div class="flex justify-end gap-2 border-t pt-2">
+            <button onclick="cerrarModal('modalExtrasPos')" class="px-3 py-1 text-xs font-semibold text-slate-500">Cancelar</button>
+            <button onclick="confirmarAgregarConExtras()" class="px-4 py-1.5 bg-indigo-600 text-white rounded-xl font-bold text-xs">Agregar a Orden</button>
+        </div>
+    </div>
+</div>
+
+<!-- MODAL CANCELAR PEDIDOS ACTIVOS / ANULAR TICKETS COBRADOS -->
+<div id="modalHistorialTurno" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm hidden flex justify-center items-center z-50 p-4">
+    <div class="bg-white rounded-2xl p-5 w-full max-w-xl shadow-2xl space-y-3">
+        <div class="flex justify-between items-center border-b pb-2">
+            <h3 class="text-sm font-extrabold text-slate-800 flex items-center gap-2">
+                <i class="fa-solid fa-ban text-rose-600"></i> Cancelar Pedidos y Anular Tickets
+            </h3>
+            <button onclick="cerrarModal('modalHistorialTurno')" class="text-slate-400 hover:text-slate-700 font-bold text-base px-2">✕</button>
+        </div>
+
+        <div class="grid grid-cols-2 gap-2 bg-slate-100 p-1 rounded-xl text-xs font-extrabold">
+            <button id="tabCancelActivos" onclick="cambiarTabCancelacion('ACTIVOS')" class="py-2 rounded-lg bg-white text-indigo-700 shadow-sm">
+                🪑 Mesas / Llevar Activos
+            </button>
+            <button id="tabCancelTickets" onclick="cambiarTabCancelacion('TICKETS')" class="py-2 rounded-lg text-slate-600 hover:text-slate-900">
+                🧾 Tickets Ya Cobrados
+            </button>
+        </div>
+
+        <div class="bg-rose-50/70 border border-rose-200 p-2.5 rounded-xl text-xs flex flex-col sm:flex-row sm:items-center gap-2">
+            <label class="font-bold text-rose-900 whitespace-nowrap"><i class="fa-solid fa-pen"></i> Motivo:</label>
+            <input type="text" id="txtMotivoCancelacionGlobal" placeholder="Ej. Cliente canceló, error de cobro, duplicado..."
+                   class="w-full p-1.5 bg-white border border-rose-200 rounded-lg text-xs font-semibold text-slate-800 focus:outline-none focus:border-rose-500">
+        </div>
+
+        <div id="listaCancelacionesModal" class="divide-y divide-slate-100 max-h-[50vh] overflow-y-auto pr-1 text-xs"></div>
+    </div>
+</div>
+
+<!-- PLANTILLA IMPRESIÓN TÉRMICA (ROLLO 80MM / 58MM) -->
+<div id="ticketImpresionArea">
+    <div class="ticket-termico">
+        <div class="t-center">
+            <div style="font-size: 18px; font-weight: 900; letter-spacing: 0.5px;">CÁLIDO CAFÉ</div>
+            <div style="font-size: 11px;">NIT: C/F</div>
+            <div style="font-size: 11px;">Quetzaltenango, Guatemala</div>
+            <div style="font-size: 11px;">Tel: +502 0000-0000</div>
+        </div>
+
+        <div class="t-sep-doble"></div>
+
+        <div class="t-center t-bold" style="font-size: 12px;" id="prtTituloDoc">COMPROBANTE DE VENTA</div>
+        <div class="t-center" style="font-size: 11px;" id="prtSubtituloDoc">Ticket No. <span id="prtNumeroOrden">000000</span></div>
+
+        <div class="t-sep"></div>
+
+        <div style="font-size: 11px;" id="prtBloqueDatos">
+            <div><b>Fecha:</b> <span id="prtFechaHora"></span></div>
+            <div><b>Destino:</b> <span id="prtMesa">Mostrador</span></div>
+            <div><b>Cliente:</b> <span id="prtCliente">Consumidor Final (C/F)</span></div>
+        </div>
+
+        <div class="t-sep"></div>
+
+        <table class="tabla-termica" id="prtTablaProductos">
+            <thead>
+            <tr>
+                <th style="width: 14%; text-align: left;">Cant</th>
+                <th style="width: 61%; text-align: left;">Producto</th>
+                <th style="width: 25%; text-align: right;">Total</th>
+            </tr>
+            </thead>
+            <tbody id="prtListaItems"></tbody>
+        </table>
+
+        <div id="prtBloqueTotales">
+            <div class="t-sep-doble"></div>
+
+            <div style="display: flex; justify-content: space-between; font-size: 15px; font-weight: 900; margin: 4px 0;">
+                <span>TOTAL:</span>
+                <span>Q <span id="prtTotal">0.00</span></span>
+            </div>
+
+            <div class="t-sep"></div>
+
+            <div style="font-size: 11px;">
+                <div style="display: flex; justify-content: space-between;">
+                    <span>Forma de Pago:</span>
+                    <span class="t-bold" id="prtMetodoPago">EFECTIVO</span>
+                </div>
+                <div id="prtRowEfectivo" style="display: flex; justify-content: space-between;">
+                    <span>Efectivo Recibido:</span>
+                    <span>Q <span id="prtRecibido">0.00</span></span>
+                </div>
+                <div id="prtRowCambio" style="display: flex; justify-content: space-between;">
+                    <span>Cambio / Vuelto:</span>
+                    <span class="t-bold">Q <span id="prtCambio">0.00</span></span>
+                </div>
+            </div>
+        </div>
+
+        <div class="t-sep"></div>
+
+        <div class="t-center" style="font-size: 10px; margin-top: 6px;">
+            <div class="t-bold">¡Gracias por su visita a Cálido Café!</div>
+            <div>Comprobante interno de consumo</div>
+            <div>No válido como factura contable FEL</div>
+        </div>
+        <br>
+    </div>
+</div>
+
+<script>
+    let ordenActual = [];
+    let catSeleccionadaPos = 'TODAS';
+    let productoTempParaExtras = null;
+    let metodoPagoSeleccionado = 'EFECTIVO';
+    let listaExtrasDisponibles = [];
+    let comensalActual = "Persona 1";
+    let mesaOrigenCobro = null;
+    let llevarOrigenId = null;
+    let clienteOrigenCobro = null;
+    let tabCancelActual = 'ACTIVOS';
+
+    const channelKDS = window.BroadcastChannel ? new BroadcastChannel('kds_comandas_channel') : null;
+
+    window.onload = async function() {
+        verificarEstadoCajaUI();
+        await renderCategoriasPos();
+        await cargarSelectorMesasPos();
+        await renderProductosPos();
+
+        const urlParams = new URLSearchParams(window.location.search);
+        const mesaParam = urlParams.get('mesa');
+        const llevarParam = urlParams.get('llevar');
+        const modoParam = urlParams.get('modo');
+
+        if (mesaParam) {
+            mesaOrigenCobro = mesaParam;
+            const badge = document.getElementById('badgeOrigenOrden');
+            badge.innerText = `Mesa ${mesaParam}`;
+            badge.classList.remove('hidden');
+
+            const claveMesa = `orden_mesa_${mesaParam}`;
+            const dataMesaRaw = localStorage.getItem(claveMesa);
+            if (dataMesaRaw) {
+                try {
+                    const dataMesa = JSON.parse(dataMesaRaw);
+                    ordenActual = dataMesa.items || [];
+                    clienteOrigenCobro = dataMesa.cliente || null;
+                    renderOrdenPos();
+
+                    if (modoParam === 'separado' || modoParam === 'completo') {
+                        abrirModalCobrarVenta();
+                    }
+                } catch(e){}
+            }
+        } else if (llevarParam) {
+            llevarOrigenId = llevarParam;
+            const dataLlevarRaw = localStorage.getItem(llevarParam);
+            if (dataLlevarRaw) {
+                try {
+                    const dataLlevar = JSON.parse(dataLlevarRaw);
+                    ordenActual = dataLlevar.items || [];
+                    clienteOrigenCobro = dataLlevar.cliente || 'Para Llevar';
+
+                    const badge = document.getElementById('badgeOrigenOrden');
+                    badge.innerText = `🛍️ ${clienteOrigenCobro}`;
+                    badge.classList.remove('hidden');
+
+                    renderOrdenPos();
+
+                    if (modoParam === 'separado' || modoParam === 'completo') {
+                        abrirModalCobrarVenta();
+                    }
+                } catch(e){}
+            }
+        } else {
+            renderOrdenPos();
+        }
+    };
+
+    function abrirModal(id) { document.getElementById(id).classList.remove('hidden'); }
+    function cerrarModal(id) { document.getElementById(id).classList.add('hidden'); }
+
+    function obtenerEstadoCaja() {
+        try {
+            const raw = localStorage.getItem('estado_caja_turno');
+            if (!raw) return { abierta: false, montoInicial: 0, turnoId: null };
+            return JSON.parse(raw);
+        } catch (e) {
+            return { abierta: false, montoInicial: 0, turnoId: null };
+        }
+    }
+
+    function validarCajaAbierta(mostrarAviso = true) {
+        const estado = obtenerEstadoCaja();
+        if (!estado || !estado.abierta) {
+            if (mostrarAviso) {
+                alert("🔒 La caja está CERRADA. Debes aperturarla antes de registrar o cobrar ventas.");
+                prepararModalAperturaCaja();
+            }
+            return false;
+        }
+        return true;
+    }
+
+    function verificarEstadoCajaUI() {
+        const estadoCaja = obtenerEstadoCaja();
+        const ultimoCierre = JSON.parse(localStorage.getItem('ultimo_cierre_caja') || 'null');
+
+        const badge = document.getElementById('badgeEstadoCaja');
+        const lblMonto = document.getElementById('lblMontoInicialCaja');
+        const lblAmanecer = document.getElementById('lblInfoAmanecer');
+        const btnAbrir = document.getElementById('btnAbrirCaja');
+        const btnCerrar = document.getElementById('btnCerrarCaja');
+        const btnGasto = document.getElementById('btnGastoCaja');
+        const btnGaveta = document.getElementById('btnAbrirGaveta');
+        const bannerCerrada = document.getElementById('bannerCajaCerrada');
+
+        if (estadoCaja.abierta) {
+            badge.className = 'bg-emerald-500 text-white font-extrabold px-2.5 py-0.5 rounded-full text-[11px] uppercase shadow-sm';
+            badge.innerText = 'ABIERTO';
+            lblMonto.innerText = 'Fondo: Q ' + parseFloat(estadoCaja.montoInicial || 0).toFixed(2);
+            btnAbrir.classList.add('hidden');
+            btnCerrar.classList.remove('hidden');
+            btnGasto.classList.remove('hidden');
+            btnGaveta.classList.remove('hidden');
+            bannerCerrada.classList.add('hidden');
+
+            if (ultimoCierre && ultimoCierre.montoCierre !== undefined) {
+                lblAmanecer.innerText = `(Cierre anterior: Q ${parseFloat(ultimoCierre.montoCierre).toFixed(2)})`;
+            } else {
+                lblAmanecer.innerText = '';
+            }
+        } else {
+            badge.className = 'bg-rose-500 text-white font-extrabold px-2.5 py-0.5 rounded-full text-[11px] uppercase shadow-sm';
+            badge.innerText = 'CERRADO';
+            lblMonto.innerText = 'Fondo: Q 0.00';
+            btnAbrir.classList.remove('hidden');
+            btnCerrar.classList.add('hidden');
+            btnGasto.classList.add('hidden');
+            btnGaveta.classList.add('hidden');
+            bannerCerrada.classList.remove('hidden');
+
+            if (ultimoCierre && ultimoCierre.montoCierre !== undefined) {
+                const montoPrev = parseFloat(ultimoCierre.montoCierre).toFixed(2);
+                lblAmanecer.innerText = `Último cierre: Q ${montoPrev}`;
+                document.getElementById('lblDetalleUltimoCierreBanner').innerText =
+                    `Último cierre registrado el ${ultimoCierre.fechaCierre}: Q ${montoPrev}. Apertura la caja para comenzar a vender.`;
+            } else {
+                lblAmanecer.innerText = '';
+            }
+        }
+    }
+
+    function prepararModalAperturaCaja() {
+        const ultimoCierre = JSON.parse(localStorage.getItem('ultimo_cierre_caja') || 'null');
+        const boxPrev = document.getElementById('boxSaldoAnteriorApertura');
+        const inputInicial = document.getElementById('txtMontoInicial');
+
+        if (ultimoCierre && ultimoCierre.montoCierre !== undefined) {
+            const saldoPrev = parseFloat(ultimoCierre.montoCierre) || 0;
+            boxPrev.classList.remove('hidden');
+            document.getElementById('lblMontoCierreAnterior').innerText = `Q ${saldoPrev.toFixed(2)}`;
+            document.getElementById('lblFechaCierreAnterior').innerText = `Cerrado el: ${ultimoCierre.fechaCierre || 'Turno anterior'}`;
+            inputInicial.value = saldoPrev.toFixed(2);
+        } else {
+            boxPrev.classList.add('hidden');
+            inputInicial.value = '100.00';
+        }
+
+        abrirModal('modalAbrirCaja');
+    }
+
+    function confirmarAperturaCaja() {
+        const monto = parseFloat(document.getElementById('txtMontoInicial').value);
+        if (isNaN(monto) || monto < 0) {
+            return alert("Ingresa un monto inicial válido (0 o mayor).");
+        }
+
+        const turnoId = 'turno_' + Date.now();
+        const turno = {
+            abierta: true,
+            turnoId: turnoId,
+            montoInicial: monto,
+            fechaApertura: new Date().toLocaleString()
+        };
+        localStorage.setItem('estado_caja_turno', JSON.stringify(turno));
+        cerrarModal('modalAbrirCaja');
+        verificarEstadoCajaUI();
+    }
+
+    function abrirModalGastoCaja() {
+        if (!validarCajaAbierta(true)) return;
+        document.getElementById('txtConceptoGasto').value = '';
+        document.getElementById('txtMontoGasto').value = '';
+        abrirModal('modalGastoCaja');
+    }
+
+    function confirmarGastoCaja() {
+        if (!validarCajaAbierta(true)) return;
+        const concepto = document.getElementById('txtConceptoGasto').value.trim();
+        const monto = parseFloat(document.getElementById('txtMontoGasto').value);
+        if (!concepto) return alert("Escribe el concepto del gasto.");
+        if (isNaN(monto) || monto <= 0) return alert("Ingresa un monto válido mayor a 0.");
+
+        const turno = obtenerEstadoCaja();
+        const gastos = JSON.parse(localStorage.getItem('gastos_caja_turno') || '[]');
+        gastos.push({
+            id: 'gasto_' + Date.now(),
+            turnoId: turno.turnoId,
+            concepto: concepto,
+            monto: monto,
+            fecha: new Date().toLocaleString()
+        });
+        localStorage.setItem('gastos_caja_turno', JSON.stringify(gastos));
+        cerrarModal('modalGastoCaja');
+        alert(`✔ Salida de Q ${monto.toFixed(2)} (${concepto}) registrada y descontada de gaveta.`);
+    }
+
+    function abrirGavetaSinVenta() {
+        if (!validarCajaAbierta(true)) return;
+        document.getElementById('prtTituloDoc').innerText = 'APERTURA DE GAVETA';
+        document.getElementById('prtSubtituloDoc').innerText = 'Control Interno de Caja';
+        document.getElementById('prtFechaHora').innerText = new Date().toLocaleString();
+        document.getElementById('prtMesa').innerText = 'Caja Principal';
+        document.getElementById('prtCliente').innerText = 'Apertura manual sin venta';
+        document.getElementById('prtTablaProductos').style.display = 'none';
+        document.getElementById('prtBloqueTotales').style.display = 'none';
+        window.print();
+        document.getElementById('prtTablaProductos').style.display = 'table';
+        document.getElementById('prtBloqueTotales').style.display = 'block';
+    }
+
+    // --- CANCELACIÓN DE PEDIDOS ACTIVOS Y ANULACIÓN DE TICKETS ---
+    function abrirModalHistorialTurno() {
+        document.getElementById('txtMotivoCancelacionGlobal').value = '';
+        cambiarTabCancelacion('ACTIVOS');
+        abrirModal('modalHistorialTurno');
+    }
+
+    function cambiarTabCancelacion(tab) {
+        tabCancelActual = tab;
+        const btnAct = document.getElementById('tabCancelActivos');
+        const btnTic = document.getElementById('tabCancelTickets');
+
+        if (tab === 'ACTIVOS') {
+            btnAct.className = 'py-2 rounded-lg bg-white text-indigo-700 shadow-sm font-extrabold';
+            btnTic.className = 'py-2 rounded-lg text-slate-600 hover:text-slate-900 font-bold';
+            renderPedidosActivosCancelacion();
+        } else {
+            btnTic.className = 'py-2 rounded-lg bg-white text-indigo-700 shadow-sm font-extrabold';
+            btnAct.className = 'py-2 rounded-lg text-slate-600 hover:text-slate-900 font-bold';
+            renderHistorialTicketsTurno();
+        }
+    }
+
+    function renderPedidosActivosCancelacion() {
+        const cont = document.getElementById('listaCancelacionesModal');
+        cont.innerHTML = '';
+        let activos = [];
+
+        for (let i = 0; i < localStorage.length; i++) {
+            const k = localStorage.key(i);
+            if (k && (k.startsWith('orden_mesa_') || k.startsWith('orden_llevar_'))) {
+                try {
+                    const data = JSON.parse(localStorage.getItem(k));
+                    if (data && data.items && data.items.length > 0) {
+                        const esMesa = k.startsWith('orden_mesa_');
+                        const etiqueta = esMesa ? `🪑 Mesa ${k.replace('orden_mesa_', '')}` : `🛍️ ${data.cliente || 'Para Llevar'}`;
+                        const total = data.items.reduce((acc, it) => acc + (parseFloat(it.precio || 0) * (parseInt(it.cantidad) || 1)), 0);
+                        activos.push({
+                            clave: k,
+                            esMesa: esMesa,
+                            titulo: etiqueta,
+                            cliente: data.cliente || 'Cliente',
+                            items: data.items,
+                            total: total
+                        });
+                    }
+                } catch(e){}
+            }
+        }
+
+        if (activos.length === 0) {
+            cont.innerHTML = `<p class="text-center text-slate-400 py-8 font-semibold">No hay mesas ocupadas ni pedidos para llevar pendientes en este momento.</p>`;
+            return;
+        }
+
+        activos.forEach(act => {
+            const resumen = act.items.map(it => `${it.cantidad}x ${it.nombre}`).join(', ');
+            cont.innerHTML += `
+                <div class="py-3 flex justify-between items-center gap-3">
+                    <div class="flex-1">
+                        <div class="flex items-center gap-2">
+                            <span class="font-black text-slate-800 text-xs">${act.titulo}</span>
+                            <span class="bg-amber-100 text-amber-800 font-bold px-2 py-0.5 rounded text-[10px]">EN CURSO</span>
+                        </div>
+                        <p class="text-[11px] font-bold text-slate-600 mt-0.5">${act.cliente}</p>
+                        <p class="text-[11px] text-slate-500">${resumen}</p>
+                    </div>
+                    <div class="text-right flex flex-col items-end gap-1.5">
+                        <span class="font-black text-slate-900 text-sm">Q ${act.total.toFixed(2)}</span>
+                        <button type="button" onclick="cancelarPedidoActivo('${act.clave}')" class="bg-rose-600 hover:bg-rose-700 text-white font-extrabold px-3 py-1.5 rounded-xl text-[11px] shadow cursor-pointer">
+                            <i class="fa-solid fa-trash"></i> Cancelar Pedido
+                        </button>
+                    </div>
+                </div>
+            `;
+        });
+    }
+
+    function cancelarPedidoActivo(claveStorage) {
+        const motivo = document.getElementById('txtMotivoCancelacionGlobal').value.trim() || 'Cancelado por cliente en mostrador';
+        let dataPrev = null;
+        try { dataPrev = JSON.parse(localStorage.getItem(claveStorage)); } catch(e){}
+
+        localStorage.removeItem(claveStorage);
+
+        if ((mesaOrigenCobro && claveStorage === `orden_mesa_${mesaOrigenCobro}`) || (llevarOrigenId && claveStorage === llevarOrigenId)) {
+            limpiarOrden();
+        }
+
+        const esMesa = claveStorage.startsWith('orden_mesa_');
+        const numMesa = esMesa ? claveStorage.replace('orden_mesa_', '').trim() : '';
+        const idLlevar = !esMesa ? claveStorage.replace('orden_llevar_', '').trim() : '';
+        const clienteLlevar = (dataPrev && dataPrev.cliente) ? dataPrev.cliente.trim().toLowerCase() : '';
+
+        for (let i = 0; i < localStorage.length; i++) {
+            const k = localStorage.key(i);
+            if (k && k.startsWith('comanda_')) {
+                try {
+                    const c = JSON.parse(localStorage.getItem(k));
+                    if (c && !c.anulada && c.estado !== 'ENTREGADA' && c.estado !== 'DESPACHADA') {
+                        let coincide = false;
+
+                        if (esMesa) {
+                            const mesaComanda = String(c.mesa || '').replace(/\D/g, '');
+                            coincide = (mesaComanda === numMesa);
+                        } else {
+                            const esComandaLlevar = String(c.mesa || '').toLowerCase().includes('llevar');
+                            const coincideId = (dataPrev && dataPrev.idComanda && c.id === dataPrev.idComanda) || String(c.id || '').includes(idLlevar);
+                            const coincideCliente = clienteLlevar && String(c.cliente || '').toLowerCase().includes(clienteLlevar);
+                            coincide = esComandaLlevar && (coincideId || coincideCliente);
+                        }
+
+                        if (coincide) {
+                            c.anulada = true;
+                            c.estado = 'CANCELADA';
+                            c.motivoAnulacion = motivo;
+                            localStorage.setItem(k, JSON.stringify(c));
+
+                            if (channelKDS) {
+                                try {
+                                    channelKDS.postMessage({
+                                        tipo: 'ANULAR_COMANDA',
+                                        id: c.id,
+                                        motivo: motivo
+                                    });
+                                } catch(e){}
+                            }
+                        }
+                    }
+                } catch(e){}
+            }
+        }
+
+        renderPedidosActivosCancelacion();
+        alert(`✔ Pedido cancelado (${motivo}). La mesa/orden quedó libre y en cocina ya aparece como CANCELADA.`);
+    }
+
+    function renderHistorialTicketsTurno() {
+        const cont = document.getElementById('listaCancelacionesModal');
+        cont.innerHTML = '';
+        let tickets = [];
+
+        for (let i = 0; i < localStorage.length; i++) {
+            const k = localStorage.key(i);
+            if (k && k.startsWith('comanda_')) {
+                try {
+                    const c = JSON.parse(localStorage.getItem(k));
+                    if (c && c.items && !c.cerradaEnTurno) tickets.push(c);
+                } catch(e){}
+            }
+        }
+
+        tickets.sort((a, b) => b.id.localeCompare(a.id));
+
+        if (tickets.length === 0) {
+            cont.innerHTML = `<p class="text-center text-slate-400 py-8 font-semibold">Aún no hay tickets cobrados en el turno abierto.</p>`;
+            return;
+        }
+
+        tickets.forEach(t => {
+            const num = String(t.id).slice(-6);
+            const resumenItems = (t.items || []).map(it => `${it.cantidad}x ${it.nombre}`).join(', ');
+            const badgeEstado = t.anulada
+                ? `<span class="bg-rose-100 text-rose-700 font-black px-2 py-0.5 rounded text-[10px]">ANULADA: ${t.motivoAnulacion || 'Error'}</span>`
+                : `<span class="bg-emerald-100 text-emerald-700 font-bold px-2 py-0.5 rounded text-[10px]">${t.metodoPago || 'EFECTIVO'}</span>`;
+
+            cont.innerHTML += `
+                <div class="py-3 flex justify-between items-center gap-3 ${t.anulada ? 'opacity-60' : ''}">
+                    <div class="flex-1">
+                        <div class="flex items-center gap-1.5 flex-wrap">
+                            <span class="font-black text-slate-800">#${num}</span>
+                            <span class="text-slate-400">• ${t.fecha || ''}</span>
+                            ${badgeEstado}
+                        </div>
+                        <p class="font-bold text-slate-700 mt-0.5">${t.cliente} <span class="text-slate-400 font-normal">(${t.mesa})</span></p>
+                        <p class="text-[11px] text-slate-500">${resumenItems}</p>
+                    </div>
+                    <div class="text-right flex flex-col items-end gap-1.5">
+                        <span class="font-black text-sm ${t.anulada ? 'line-through text-rose-600' : 'text-slate-900'}">Q ${parseFloat(t.total || 0).toFixed(2)}</span>
+                        ${!t.anulada ? `
+                            <button type="button" onclick="anularTicketTurno('${t.id}')" class="bg-rose-600 hover:bg-rose-700 text-white font-extrabold px-3 py-1.5 rounded-xl text-[11px] shadow cursor-pointer">
+                                <i class="fa-solid fa-ban"></i> Anular Ticket
+                            </button>
+                        ` : ''}
+                    </div>
+                </div>
+            `;
+        });
+    }
+
+    function anularTicketTurno(idComanda) {
+        const raw = localStorage.getItem(idComanda);
+        if (!raw) return;
+        const comanda = JSON.parse(raw);
+
+        const motivoInput = document.getElementById('txtMotivoCancelacionGlobal').value.trim();
+        const motivo = motivoInput || 'Anulado en caja';
+
+        comanda.anulada = true;
+        comanda.estado = 'CANCELADA';
+        comanda.motivoAnulacion = motivo;
+        comanda.fechaAnulacion = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+        localStorage.setItem(idComanda, JSON.stringify(comanda));
+
+        if (channelKDS) {
+            try {
+                channelKDS.postMessage({
+                    tipo: 'ANULAR_COMANDA',
+                    id: idComanda,
+                    motivo: motivo
+                });
+            } catch(e){}
+        }
+
+        renderHistorialTicketsTurno();
+        alert(`✔ Ticket #${String(idComanda).slice(-6)} ANULADO (${motivo}). El monto de Q ${parseFloat(comanda.total).toFixed(2)} fue descontado del arqueo y cocina fue notificada.`);
+    }
+
+    function calcularResumenTurnoActual() {
+        const turno = obtenerEstadoCaja();
+        const turnoActualId = turno.turnoId;
+
+        let ventasEfectivo = 0;
+        let ventasTarjeta = 0;
+        let ventasTransferencia = 0;
+        let cantidadComandas = 0;
+
+        for (let i = 0; i < localStorage.length; i++) {
+            const k = localStorage.key(i);
+            if (k && k.startsWith('comanda_')) {
+                try {
+                    const c = JSON.parse(localStorage.getItem(k));
+                    const perteneceTurno = turnoActualId ? (c.turnoId === turnoActualId) : !c.cerradaEnTurno;
+
+                    if (c && c.items && perteneceTurno && !c.anulada) {
+                        let totComanda = 0;
+                        c.items.forEach(it => {
+                            totComanda += (parseFloat(it.precio || it.precioVenta || 0) * (parseInt(it.cantidad) || 1));
+                        });
+
+                        const metodo = (c.metodoPago || 'EFECTIVO').toUpperCase();
+                        if (metodo === 'TARJETA') {
+                            ventasTarjeta += totComanda;
+                        } else if (metodo === 'TRANSFERENCIA') {
+                            ventasTransferencia += totComanda;
+                        } else {
+                            ventasEfectivo += totComanda;
+                        }
+                        cantidadComandas++;
+                    }
+                } catch(e){}
+            }
+        }
+
+        const gastosAll = JSON.parse(localStorage.getItem('gastos_caja_turno') || '[]');
+        const gastosTurno = gastosAll
+            .filter(g => g.turnoId === turnoActualId)
+            .reduce((acc, g) => acc + (parseFloat(g.monto) || 0), 0);
+
+        const inicial = parseFloat(turno.montoInicial) || 0;
+        const totalVendido = ventasEfectivo + ventasTarjeta + ventasTransferencia;
+        const esperadoEfectivo = Math.max(0, inicial + ventasEfectivo - gastosTurno);
+
+        return {
+            turno,
+            inicial,
+            ventasEfectivo,
+            ventasTarjeta,
+            ventasTransferencia,
+            gastosTurno,
+            totalVendido,
+            esperadoEfectivo,
+            cantidadComandas
+        };
+    }
+
+    function abrirModalCierreCaja() {
+        const res = calcularResumenTurnoActual();
+
+        document.getElementById('lblCierreNumComandas').innerText = `${res.cantidadComandas} ventas en turno`;
+        document.getElementById('lblCierreInicial').innerText = "Q " + res.inicial.toFixed(2);
+        document.getElementById('lblCierreVentasEfectivo').innerText = "Q " + res.ventasEfectivo.toFixed(2);
+        document.getElementById('lblCierreVentasTarjeta').innerText = "Q " + res.ventasTarjeta.toFixed(2);
+        document.getElementById('lblCierreVentasTransferencia').innerText = "Q " + res.ventasTransferencia.toFixed(2);
+        document.getElementById('lblCierreGastosEfectivo').innerText = "- Q " + res.gastosTurno.toFixed(2);
+        document.getElementById('lblCierreTotalVendido').innerText = "Q " + res.totalVendido.toFixed(2);
+        document.getElementById('lblCierreEsperado').innerText = "Q " + res.esperadoEfectivo.toFixed(2);
+
+        document.getElementById('txtEfectivoConteo').value = res.esperadoEfectivo.toFixed(2);
+        calcularDiferenciaCierre();
+
+        abrirModal('modalCierreCaja');
+    }
+
+    function calcularDiferenciaCierre() {
+        const esperadoText = document.getElementById('lblCierreEsperado').innerText.replace('Q ', '');
+        const esperado = parseFloat(esperadoText) || 0;
+        const conteo = parseFloat(document.getElementById('txtEfectivoConteo').value) || 0;
+        const diff = conteo - esperado;
+        const lbl = document.getElementById('lblDiferenciaCierre');
+
+        if (Math.abs(diff) < 0.01) {
+            lbl.className = "text-[11px] font-bold text-emerald-600 mt-1";
+            lbl.innerText = "✔ Cuadre Exacto en Efectivo";
+        } else if (diff > 0) {
+            lbl.className = "text-[11px] font-bold text-indigo-600 mt-1";
+            lbl.innerText = "▲ Sobrante en caja: Q " + diff.toFixed(2);
+        } else {
+            lbl.className = "text-[11px] font-bold text-rose-600 mt-1";
+            lbl.innerText = "▼ Faltante en caja: Q " + Math.abs(diff).toFixed(2);
+        }
+    }
+
+    function confirmarCierreCaja() {
+        const res = calcularResumenTurnoActual();
+        const conteoVal = parseFloat(document.getElementById('txtEfectivoConteo').value);
+
+        if (isNaN(conteoVal) || conteoVal < 0) {
+            return alert("Por favor ingresa el monto en efectivo con el que cierras la caja.");
+        }
+
+        const fechaCierreStr = new Date().toLocaleString();
+        const registroCierre = {
+            id: 'cierre_' + Date.now(),
+            turnoId: res.turno.turnoId || 'sin_id',
+            fechaApertura: res.turno.fechaApertura || 'N/A',
+            fechaCierre: fechaCierreStr,
+            montoInicial: res.inicial,
+            ventasEfectivo: res.ventasEfectivo,
+            ventasTarjeta: res.ventasTarjeta,
+            ventasTransferencia: res.ventasTransferencia,
+            gastosEfectivo: res.gastosTurno,
+            totalVendido: res.totalVendido,
+            efectivoEsperado: res.esperadoEfectivo,
+            montoCierre: conteoVal,
+            diferencia: conteoVal - res.esperadoEfectivo,
+            cantidadComandas: res.cantidadComandas
+        };
+
+        localStorage.setItem('ultimo_cierre_caja', JSON.stringify(registroCierre));
+
+        const historialCierres = JSON.parse(localStorage.getItem('historial_cierres_caja') || '[]');
+        historialCierres.unshift(registroCierre);
+        localStorage.setItem('historial_cierres_caja', JSON.stringify(historialCierres));
+
+        for (let i = 0; i < localStorage.length; i++) {
+            const k = localStorage.key(i);
+            if (k && k.startsWith('comanda_')) {
+                try {
+                    const c = JSON.parse(localStorage.getItem(k));
+                    if (c && !c.cerradaEnTurno) {
+                        c.cerradaEnTurno = true;
+                        localStorage.setItem(k, JSON.stringify(c));
+                    }
+                } catch(e){}
+            }
+        }
+
+        localStorage.setItem('estado_caja_turno', JSON.stringify({
+            abierta: false,
+            montoInicial: 0,
+            turnoId: null
+        }));
+
+        cerrarModal('modalCierreCaja');
+        verificarEstadoCajaUI();
+        alert(`🔒 Caja cerrada correctamente.\n\n• Efectivo: Q ${res.ventasEfectivo.toFixed(2)}\n• Tarjeta: Q ${res.ventasTarjeta.toFixed(2)}\n• Transferencia: Q ${res.ventasTransferencia.toFixed(2)}\n• Salidas Efectivo: -Q ${res.gastosTurno.toFixed(2)}\n• Saldo guardado para mañana: Q ${conteoVal.toFixed(2)}`);
+    }
+
+    async function obtenerCategoriasPos() {
+        let listaBD = [];
+        try {
+            const res = await fetch('/api/categorias');
+            if (res.ok) {
+                const data = await res.json();
+                listaBD = data.map(c => ({ id: c.nombre.toUpperCase(), nombre: c.nombre.toUpperCase(), icono: c.icono || '🏷️' }));
+            }
+        } catch(e){}
+
+        let locales = [];
+        try { locales = JSON.parse(localStorage.getItem('global_categorias_config')) || []; } catch(e){}
+
+        const baseDefectos = [
+            { id: 'CALIENTES', nombre: 'CALIENTES', icono: '☕' },
+            { id: 'FRIOS', nombre: 'FRIOS', icono: '🧊' },
+            { id: 'MATCHA', nombre: 'MATCHA', icono: '🍵' },
+            { id: 'FILTRADOS', nombre: 'FILTRADOS', icono: '⚗️' }
+        ];
+
+        const map = new Map();
+        [...baseDefectos, ...locales, ...listaBD].forEach(c => map.set(c.nombre.toUpperCase(), c));
+        return Array.from(map.values());
+    }
+
+    async function renderCategoriasPos() {
+        const categorias = await obtenerCategoriasPos();
+        const cont = document.getElementById('contenedorCategoriasPos');
+        cont.innerHTML = `
+            <button onclick="filtrarCatPos('TODAS', this)" class="btn-cat-pos ${catSeleccionadaPos === 'TODAS' ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600'} px-3 py-1.5 rounded-lg whitespace-nowrap shadow-sm">Todas</button>
+        `;
+
+        categorias.forEach(c => {
+            const esActiva = catSeleccionadaPos === c.nombre;
+            cont.innerHTML += `
+                <button onclick="filtrarCatPos('${c.nombre}', this)" class="btn-cat-pos ${esActiva ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600'} px-3 py-1.5 rounded-lg whitespace-nowrap hover:bg-slate-200">
+                    ${c.icono} ${c.nombre}
+                </button>
+            `;
+        });
+    }
+
+    async function cargarSelectorMesasPos() {
+        const select = document.getElementById('selectUbicacionMesaPos');
+        if (!select) return;
+
+        let mesas = ['1', '2', '3', '4', '5', 'Para Llevar', 'Barra'];
+        try {
+            const res = await fetch('/api/mesas');
+            if (res.ok) {
+                const data = await res.json();
+                mesas = data.map(m => m.numeroMesa || m.numero || String(m.id));
+            }
+        } catch(e){}
+
+        let locales = [];
+        try { locales = JSON.parse(localStorage.getItem('global_mesas_config')) || []; } catch(e){}
+
+        const unificadas = [...new Set([...mesas, ...locales])];
+        select.innerHTML = '';
+
+        unificadas.forEach(m => {
+            const esLlevar = String(m).toLowerCase().includes('llevar');
+            const tit = esLlevar ? `🛍️ ${m} (Pedido Individual)` : (String(m).includes('Barra') ? `🍸 ${m}` : `🪑 Mesa ${m}`);
+            select.innerHTML += `<option value="${m}">${tit}</option>`;
+        });
+    }
+
+    async function obtenerProductosMenu() {
+        let listaBD = [];
+        try {
+            const res = await fetch('/api/productos');
+            if (res.ok) listaBD = await res.json();
+        } catch(e){}
+
+        let locales = [];
+        try { locales = JSON.parse(localStorage.getItem('menu_productos_admin')) || []; } catch(e){}
+
+        const map = new Map();
+        [...locales, ...listaBD].forEach(p => map.set(String(p.id), p));
+        return Array.from(map.values());
+    }
+
+    function filtrarCatPos(cat, btn) {
+        catSeleccionadaPos = cat;
+        renderCategoriasPos();
+        renderProductosPos();
+    }
+
+    async function renderProductosPos() {
+        const menu = await obtenerProductosMenu();
+        const term = document.getElementById('txtBuscarPos').value.toLowerCase().trim();
+        const grid = document.getElementById('gridProductosPos');
+        grid.innerHTML = '';
+
+        let filtrados = menu.filter(p => p.disponible !== false);
+
+        if (catSeleccionadaPos !== 'TODAS') {
+            filtrados = filtrados.filter(p => String(p.categoria || '').toUpperCase() === catSeleccionadaPos.toUpperCase());
+        }
+
+        if (term !== '') {
+            filtrados = filtrados.filter(p => p.nombre.toLowerCase().includes(term));
+        }
+
+        if (filtrados.length === 0) {
+            grid.innerHTML = `<p class="col-span-3 text-center text-slate-400 py-6 text-xs font-semibold">No hay productos disponibles en esta categoría.</p>`;
+            return;
+        }
+
+        filtrados.forEach(p => {
+            const precioNum = parseFloat(p.precioVenta || p.precio || 0);
+            grid.innerHTML += `
+                <div onclick="clickProductoPos('${p.id}')" class="bg-slate-50/70 border border-slate-100 rounded-2xl p-3 hover:border-indigo-500 active:scale-95 transition cursor-pointer flex flex-col justify-between space-y-2 shadow-sm">
+                    <div>
+                        <span class="text-[10px] font-bold text-indigo-500">${p.tamano || ''}</span>
+                        <p class="font-bold text-xs text-slate-800 leading-tight mt-0.5">${p.nombre}</p>
+                    </div>
+                    <div class="flex justify-between items-center pt-1">
+                        <p class="font-black text-xs text-slate-900">Q ${precioNum.toFixed(2)}</p>
+                        <span class="text-[9px] font-bold text-indigo-500">+ Extras</span>
+                    </div>
+                </div>
+            `;
+        });
+    }
+
+    async function cargarExtrasBD() {
+        let listaBD = [];
+        try {
+            const res = await fetch('/api/extras');
+            if (res.ok) listaBD = await res.json();
+        } catch(e){}
+
+        let locales = [];
+        try { locales = JSON.parse(localStorage.getItem('global_extras_config')) || []; } catch(e){}
+
+        const baseExtras = [
+            { id: 1, nombre: 'Leche de Almendras / Avena', precio: 5.00 },
+            { id: 2, nombre: 'Jarabes (Vainilla / Caramel)', precio: 4.00 }
+        ];
+
+        const map = new Map();
+        [...baseExtras, ...locales, ...listaBD].forEach(ex => map.set(String(ex.nombre).toLowerCase(), ex));
+        listaExtrasDisponibles = Array.from(map.values());
+    }
+
+    async function clickProductoPos(id) {
+        if (!validarCajaAbierta(true)) return;
+
+        const menu = await obtenerProductosMenu();
+        const prod = menu.find(p => String(p.id) === String(id));
+        if (!prod) return;
+
+        await cargarExtrasBD();
+        productoTempParaExtras = prod;
+
+        const cont = document.getElementById('contenedorListaExtrasPos');
+        document.getElementById('lblExtraProdTitulo').innerText = `${prod.nombre} - Personalizar`;
+        document.getElementById('txtNotaItemPos').value = '';
+        cont.innerHTML = '';
+
+        if (listaExtrasDisponibles.length === 0) {
+            cont.innerHTML = `<p class="text-slate-400 text-center py-2">Sin extras configurados.</p>`;
+        } else {
+            listaExtrasDisponibles.forEach((ex) => {
+                cont.innerHTML += `
+                    <label class="flex items-center justify-between p-2 bg-slate-50 border rounded-xl cursor-pointer hover:bg-slate-100">
+                        <div class="flex items-center gap-2">
+                            <input type="checkbox" name="chkExtraPos" value="${ex.nombre}" data-precio="${ex.precio}" class="accent-indigo-600 w-4 h-4">
+                            <span class="font-bold text-slate-700">${ex.nombre}</span>
+                        </div>
+                        <span class="font-extrabold text-amber-600">+Q ${parseFloat(ex.precio).toFixed(2)}</span>
+                    </label>
+                `;
+            });
+        }
+
+        abrirModal('modalExtrasPos');
+    }
+
+    function confirmarAgregarConExtras() {
+        if (!validarCajaAbierta(true)) return;
+        if (!productoTempParaExtras) return;
+        let extras = [];
+        let extraPrecioTotal = 0;
+
+        const checkboxes = document.querySelectorAll('input[name="chkExtraPos"]:checked');
+        checkboxes.forEach(chk => {
+            const nombreEx = chk.value;
+            const precioEx = parseFloat(chk.getAttribute('data-precio')) || 0;
+            extras.push(`${nombreEx} (+Q${precioEx.toFixed(0)})`);
+            extraPrecioTotal += precioEx;
+        });
+
+        const nota = document.getElementById('txtNotaItemPos').value.trim();
+        if (nota) {
+            extras.push(`Nota: ${nota}`);
+        }
+
+        agregarAOrden(productoTempParaExtras, extras, extraPrecioTotal);
+        cerrarModal('modalExtrasPos');
+    }
+
+    function agregarAOrden(prod, extras, extraPrecio) {
+        const precioBase = parseFloat(prod.precioVenta || prod.precio || 0);
+        const precioUnitario = precioBase + parseFloat(extraPrecio || 0);
+        const nombreAsignado = document.getElementById('txtComensalNombreInput').value.trim() || comensalActual || 'Persona 1';
+
+        const firmaExtras = JSON.stringify(extras || []);
+        const existente = ordenActual.find(it =>
+            String(it.id) === String(prod.id) &&
+            JSON.stringify(it.extras || []) === firmaExtras &&
+            (it.comensal || 'Persona 1') === nombreAsignado
+        );
+
+        if (existente) {
+            existente.cantidad += 1;
+            existente.subtotal = existente.precio * existente.cantidad;
+        } else {
+            ordenActual.push({
+                idItem: Date.now(),
+                id: prod.id,
+                nombre: prod.nombre,
+                extras: extras,
+                precio: precioUnitario,
+                precioVenta: precioUnitario,
+                subtotal: precioUnitario,
+                cantidad: 1,
+                comensal: nombreAsignado,
+                categoria: prod.categoria || 'GENERAL'
+            });
+        }
+        renderOrdenPos();
+    }
+
+    function cambiarCantidadItem(index, delta) {
+        if (!ordenActual[index]) return;
+        ordenActual[index].cantidad += delta;
+        if (ordenActual[index].cantidad <= 0) {
+            ordenActual.splice(index, 1);
+        } else {
+            ordenActual[index].subtotal = ordenActual[index].precio * ordenActual[index].cantidad;
+        }
+        renderOrdenPos();
+    }
+
+    function renderOrdenPos() {
+        const container = document.getElementById('listaOrdenPos');
+        container.innerHTML = '';
+        let total = 0;
+
+        if (ordenActual.length === 0) {
+            container.innerHTML = `
+                <div class="h-20 flex flex-col justify-center items-center text-slate-400 text-xs">
+                    <i class="fa-solid fa-mug-hot text-xl mb-1"></i>
+                    <span>Sin productos en la orden</span>
+                </div>`;
+            document.getElementById('lblSubtotalPos').innerText = 'Q 0.00';
+            document.getElementById('lblTotalPos').innerText = 'Q 0.00';
+            return;
+        }
+
+        ordenActual.forEach((item, index) => {
+            const sub = item.precio * item.cantidad;
+            total += sub;
+            const txtExtras = item.extras && item.extras.length > 0 ? `<p class="text-[10px] text-amber-600 font-semibold">${item.extras.join(', ')}</p>` : '';
+            const tagComensal = `<span class="bg-indigo-100 text-indigo-800 text-[9px] font-black px-1.5 py-0.5 rounded-md mr-1">${item.comensal || 'Persona 1'}</span>`;
+
+            container.innerHTML += `
+                <div class="py-1.5 flex justify-between items-center text-xs gap-1">
+                    <div class="flex-1 pr-1">
+                        <p class="font-bold text-slate-800 text-[11px] leading-snug">
+                            ${tagComensal} ${item.nombre}
+                        </p>
+                        ${txtExtras}
+                        <p class="text-[9px] text-slate-400">Q ${item.precio.toFixed(2)} c/u</p>
+                    </div>
+                    <div class="flex items-center gap-1">
+                        <button onclick="cambiarCantidadItem(${index}, -1)" class="w-5 h-5 rounded bg-slate-100 hover:bg-slate-200 font-black text-slate-700 flex items-center justify-center">-</button>
+                        <span class="font-black text-xs w-4 text-center">${item.cantidad}</span>
+                        <button onclick="cambiarCantidadItem(${index}, 1)" class="w-5 h-5 rounded bg-slate-100 hover:bg-slate-200 font-black text-slate-700 flex items-center justify-center">+</button>
+                    </div>
+                    <div class="flex items-center gap-1 min-w-[65px] justify-end">
+                        <span class="font-black text-slate-800 text-xs">Q ${sub.toFixed(2)}</span>
+                        <button onclick="eliminarItemOrden(${index})" class="text-slate-300 hover:text-rose-500 p-0.5">
+                            <i class="fa-solid fa-trash-can text-xs"></i>
+                        </button>
+                    </div>
+                </div>`;
+        });
+
+        document.getElementById('lblSubtotalPos').innerText = `Q ${total.toFixed(2)}`;
+        document.getElementById('lblTotalPos').innerText = `Q ${total.toFixed(2)}`;
+    }
+
+    function eliminarItemOrden(index) {
+        ordenActual.splice(index, 1);
+        renderOrdenPos();
+    }
+
+    function limpiarOrden() {
+        ordenActual = [];
+        mesaOrigenCobro = null;
+        llevarOrigenId = null;
+        clienteOrigenCobro = null;
+        const badge = document.getElementById('badgeOrigenOrden');
+        if (badge) badge.classList.add('hidden');
+        renderOrdenPos();
+    }
+
+    function abrirModalSeleccionarMesa() {
+        if (!validarCajaAbierta(true)) return;
+        if (ordenActual.length === 0) return alert('Agrega al menos un producto a la orden');
+        cargarSelectorMesasPos();
+        document.getElementById('txtNombreClientePos').value = '';
+        abrirModal('modalSeleccionarMesa');
+    }
+
+    function abrirModalCobrarVenta() {
+        if (!validarCajaAbierta(true)) return;
+        if (ordenActual.length === 0) return alert('Agrega al menos un producto a la orden');
+
+        const selectCobro = document.getElementById('selectCobroComensal');
+        selectCobro.innerHTML = `<option value="TODOS">👥 Orden Completa (Todos)</option>`;
+
+        const nombresUnicos = [...new Set(ordenActual.map(it => it.comensal || 'Persona 1'))];
+        nombresUnicos.forEach(nom => {
+            selectCobro.innerHTML += `<option value="${nom}">👤 ${nom}</option>`;
+        });
+
+        selectCobro.value = 'TODOS';
+        filtrarCobroPorComensal('TODOS');
+        document.getElementById('txtMontoEntregado').value = '';
+        document.getElementById('lblCambioCalculado').innerText = 'Q 0.00';
+        seleccionarMetodoPago('EFECTIVO');
+        abrirModal('modalCobrarVenta');
+        setTimeout(() => document.getElementById('txtMontoEntregado').focus(), 100);
+    }
+
+    function setBilleteRapido(valor) {
+        if (valor === 'EXACTO') {
+            const totText = document.getElementById('lblCobroTotal').innerText.replace('Q ', '');
+            document.getElementById('txtMontoEntregado').value = parseFloat(totText || 0).toFixed(2);
+        } else {
+            document.getElementById('txtMontoEntregado').value = valor;
+        }
+        calcularCambioCobro();
+    }
+
+    function filtrarCobroPorComensal(comensalFiltro) {
+        let totalCobro = 0;
+        if (comensalFiltro === 'TODOS') {
+            totalCobro = ordenActual.reduce((acc, it) => acc + (it.precio * it.cantidad), 0);
+        } else {
+            totalCobro = ordenActual
+                .filter(it => (it.comensal || 'Persona 1') === comensalFiltro)
+                .reduce((acc, it) => acc + (it.precio * it.cantidad), 0);
+        }
+        document.getElementById('lblCobroTotal').innerText = `Q ${totalCobro.toFixed(2)}`;
+        calcularCambioCobro();
+    }
+
+    function seleccionarMetodoPago(m) {
+        metodoPagoSeleccionado = m;
+        const btnEf = document.getElementById('btnMetodoEfectivo');
+        const btnTar = document.getElementById('btnMetodoTarjeta');
+        const btnTrans = document.getElementById('btnMetodoTransferencia');
+
+        const cajaEf = document.getElementById('cajaMontoEfectivo');
+        const cajaTar = document.getElementById('cajaInfoTarjeta');
+        const cajaTrans = document.getElementById('cajaInfoTransferencia');
+
+        btnEf.className = 'py-2 border border-slate-200 text-slate-600 font-bold rounded-xl text-center hover:bg-slate-50 text-xs';
+        btnTar.className = 'py-2 border border-slate-200 text-slate-600 font-bold rounded-xl text-center hover:bg-slate-50 text-xs';
+        btnTrans.className = 'py-2 border border-slate-200 text-slate-600 font-bold rounded-xl text-center hover:bg-slate-50 text-xs';
+
+        cajaEf.style.display = 'none';
+        cajaTar.style.display = 'none';
+        cajaTrans.style.display = 'none';
+
+        if (m === 'EFECTIVO') {
+            btnEf.className = 'py-2 border-2 border-emerald-600 bg-emerald-50 text-emerald-800 font-extrabold rounded-xl text-center text-xs';
+            cajaEf.style.display = 'block';
+        } else if (m === 'TARJETA') {
+            btnTar.className = 'py-2 border-2 border-indigo-600 bg-indigo-50 text-indigo-800 font-extrabold rounded-xl text-center text-xs';
+            cajaTar.style.display = 'block';
+        } else {
+            btnTrans.className = 'py-2 border-2 border-cyan-600 bg-cyan-50 text-cyan-800 font-extrabold rounded-xl text-center text-xs';
+            cajaTrans.style.display = 'block';
+        }
+    }
+
+    function calcularCambioCobro() {
+        const comensalFiltro = document.getElementById('selectCobroComensal').value;
+        let total = 0;
+        if (comensalFiltro === 'TODOS') {
+            total = ordenActual.reduce((acc, it) => acc + (it.precio * it.cantidad), 0);
+        } else {
+            total = ordenActual
+                .filter(it => (it.comensal || 'Persona 1') === comensalFiltro)
+                .reduce((acc, it) => acc + (it.precio * it.cantidad), 0);
+        }
+        let entregado = parseFloat(document.getElementById('txtMontoEntregado').value) || 0;
+        let cambio = entregado - total;
+        document.getElementById('lblCambioCalculado').innerText = `Q ${Math.max(0, cambio).toFixed(2)}`;
+    }
+
+    function guardarComandaLocal(mesaVal, clienteInput, metodo, filtroComensal = 'TODOS', esEnvioPendiente = false) {
+        const turno = obtenerEstadoCaja();
+        let itemsAProcesar = ordenActual;
+        if (filtroComensal !== 'TODOS') {
+            itemsAProcesar = ordenActual.filter(it => (it.comensal || 'Persona 1') === filtroComensal);
+        }
+
+        let totalNuevosItems = itemsAProcesar.reduce((acc, it) => acc + (it.precio * it.cantidad), 0);
+        const now = Date.now();
+        const idComanda = 'comanda_' + now;
+        const clienteBase = (clienteInput && clienteInput.trim()) ? clienteInput.trim() : 'Consumidor Final (C/F)';
+        const nomCliente = clienteBase + (filtroComensal !== 'TODOS' ? ` (${filtroComensal})` : '');
+        const horaStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+        const comandaData = {
+            id: idComanda,
+            turnoId: turno.turnoId || null,
+            cerradaEnTurno: false,
+            mesa: mesaVal,
+            cliente: nomCliente,
+            metodoPago: metodo,
+            items: JSON.parse(JSON.stringify(itemsAProcesar)),
+            total: totalNuevosItems,
+            estado: 'PENDIENTE',
+            fecha: horaStr
+        };
+
+        localStorage.setItem(idComanda, JSON.stringify(comandaData));
+
+        if (channelKDS) {
+            try { channelKDS.postMessage({ tipo: 'NUEVA_COMANDA', comanda: comandaData }); } catch(e){}
+        }
+
+        try {
+            fetch('/api/comandas', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(comandaData)
+            }).catch(() => {});
+        } catch(e) {}
+
+        const esParaLlevar = String(mesaVal).toLowerCase().includes('llevar') || Boolean(llevarOrigenId);
+
+        if (esParaLlevar) {
+            if (esEnvioPendiente) {
+                const idLlevarNuevo = 'orden_llevar_' + now;
+                const nombreEtiqueta = (clienteInput && clienteInput.trim())
+                    ? clienteInput.trim()
+                    : `Pedido Llevar #${String(now).slice(-4)}`;
+
+                localStorage.setItem(idLlevarNuevo, JSON.stringify({
+                    id: idLlevarNuevo,
+                    idComanda: idComanda,
+                    cliente: nombreEtiqueta,
+                    hora: horaStr,
+                    items: JSON.parse(JSON.stringify(itemsAProcesar))
+                }));
+            } else if (llevarOrigenId) {
+                if (filtroComensal !== 'TODOS') {
+                    const restoItems = ordenActual.filter(it => (it.comensal || 'Persona 1') !== filtroComensal);
+                    if (restoItems.length > 0) {
+                        const prev = JSON.parse(localStorage.getItem(llevarOrigenId) || '{}');
+                        prev.items = restoItems;
+                        localStorage.setItem(llevarOrigenId, JSON.stringify(prev));
+                    } else {
+                        localStorage.removeItem(llevarOrigenId);
+                    }
+                } else {
+                    localStorage.removeItem(llevarOrigenId);
+                }
+            }
+        } else {
+            const numMesa = String(mesaVal || mesaOrigenCobro).replace(/\D/g, '');
+            if (numMesa) {
+                const claveOrdenMesa = `orden_mesa_${numMesa}`;
+                if (filtroComensal !== 'TODOS') {
+                    const restoItems = ordenActual.filter(it => (it.comensal || 'Persona 1') !== filtroComensal);
+                    if (restoItems.length > 0) {
+                        localStorage.setItem(claveOrdenMesa, JSON.stringify({ cliente: clienteBase, items: restoItems }));
+                    } else {
+                        localStorage.removeItem(claveOrdenMesa);
+                    }
+                } else {
+                    if (!mesaOrigenCobro) {
+                        const ordenMesaExistenteRaw = localStorage.getItem(claveOrdenMesa);
+                        let itemsExistentes = [];
+                        if (ordenMesaExistenteRaw) {
+                            try {
+                                const dataPrevia = JSON.parse(ordenMesaExistenteRaw);
+                                if (dataPrevia.items) itemsExistentes = dataPrevia.items;
+                            } catch(e){}
+                        }
+                        const itemsAcumulados = [...itemsExistentes, ...JSON.parse(JSON.stringify(itemsAProcesar))];
+                        localStorage.setItem(claveOrdenMesa, JSON.stringify({ cliente: nomCliente, items: itemsAcumulados }));
+                    } else {
+                        localStorage.removeItem(claveOrdenMesa);
+                    }
+                }
+            }
+        }
+
+        if (filtroComensal !== 'TODOS') {
+            ordenActual = ordenActual.filter(it => (it.comensal || 'Persona 1') !== filtroComensal);
+            renderOrdenPos();
+        }
+
+        return comandaData;
+    }
+
+    function imprimirTicket(comanda) {
+        document.getElementById('prtTituloDoc').innerText = 'COMPROBANTE DE VENTA';
+        document.getElementById('prtSubtituloDoc').innerHTML = `Ticket No. <span id="prtNumeroOrden">${String(comanda.id || Date.now()).slice(-6)}</span>`;
+        document.getElementById('prtTablaProductos').style.display = 'table';
+        document.getElementById('prtBloqueTotales').style.display = 'block';
+
+        document.getElementById('prtFechaHora').innerText = new Date().toLocaleString();
+        document.getElementById('prtMesa').innerText = comanda.mesa;
+        document.getElementById('prtCliente').innerText = comanda.cliente || 'Consumidor Final (C/F)';
+        document.getElementById('prtTotal').innerText = comanda.total.toFixed(2);
+        document.getElementById('prtMetodoPago').innerText = comanda.metodoPago || 'EFECTIVO';
+
+        const rowEf = document.getElementById('prtRowEfectivo');
+        const rowCam = document.getElementById('prtRowCambio');
+
+        if ((comanda.metodoPago || 'EFECTIVO') === 'EFECTIVO') {
+            const recibido = parseFloat(document.getElementById('txtMontoEntregado').value) || comanda.total;
+            const cambio = Math.max(0, recibido - comanda.total);
+            document.getElementById('prtRecibido').innerText = recibido.toFixed(2);
+            document.getElementById('prtCambio').innerText = cambio.toFixed(2);
+            rowEf.style.display = 'flex';
+            rowCam.style.display = 'flex';
+        } else {
+            rowEf.style.display = 'none';
+            rowCam.style.display = 'none';
+        }
+
+        const tbody = document.getElementById('prtListaItems');
+        tbody.innerHTML = '';
+        comanda.items.forEach(it => {
+            const txtExt = it.extras && it.extras.length > 0 ? `<br><span style="font-size:10px;">+ ${it.extras.join(', ')}</span>` : '';
+            const tagCom = (it.comensal && it.comensal !== 'Persona 1') ? `<b>[${it.comensal}]</b> ` : '';
+            tbody.innerHTML += `
+                <tr>
+                    <td style="text-align: left; font-weight: bold;">${it.cantidad}x</td>
+                    <td>${tagCom}${it.nombre}${txtExt}</td>
+                    <td style="text-align: right; font-weight: bold;">Q ${(it.precio * it.cantidad).toFixed(2)}</td>
+                </tr>`;
+        });
+
+        window.print();
+    }
+
+    function confirmarEnvioAMesa() {
+        if (!validarCajaAbierta(true)) return;
+        const mesa = document.getElementById('selectUbicacionMesaPos').value;
+        const cliente = document.getElementById('txtNombreClientePos').value;
+        const metodo = document.getElementById('selectMetodoPagoMesa').value;
+
+        const comanda = guardarComandaLocal(mesa, cliente, metodo, 'TODOS', true);
+        cerrarModal('modalSeleccionarMesa');
+
+        const esLlevar = String(mesa).toLowerCase().includes('llevar');
+        alert(esLlevar
+            ? `🛍️ Pedido Para Llevar de "${comanda.cliente}" enviado a Cocina como orden individual.`
+            : `✔ Comanda enviada a Cocina para ${comanda.cliente}. Mesa ${mesa} ocupada.`
+        );
+        limpiarOrden();
+    }
+
+    function confirmarCobroVentaDirecta() {
+        if (!validarCajaAbierta(true)) return;
+        const filtroComensal = document.getElementById('selectCobroComensal').value;
+        const ubicacion = mesaOrigenCobro
+            ? `Mesa ${mesaOrigenCobro}`
+            : (llevarOrigenId ? 'Para Llevar' : 'Mostrador');
+        const nombreCliente = clienteOrigenCobro || 'Consumidor Final (C/F)';
+
+        const comanda = guardarComandaLocal(ubicacion, nombreCliente, metodoPagoSeleccionado, filtroComensal, false);
+
+        cerrarModal('modalCobrarVenta');
+        imprimirTicket(comanda);
+
+        if (filtroComensal === 'TODOS') {
+            limpiarOrden();
+        }
+    }
+</script>
+</body>
+</html>

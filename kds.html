@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KDS Cocina - Cálido Café</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        html, body {
+            overflow-y: auto !important;
+            min-height: 100vh;
+        }
+    </style>
+</head>
+<body class="bg-slate-900 text-slate-100 p-3 md:p-5 font-sans min-h-screen">
+
+<!-- Barra Superior KDS -->
+<div class="bg-slate-800 border border-slate-700 rounded-2xl p-3.5 mb-4 flex flex-wrap justify-between items-center gap-3 shadow-lg">
+    <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center text-lg">
+            <i class="fa-solid fa-fire-burner"></i>
+        </div>
+        <div>
+            <h1 class="font-black text-base md:text-lg tracking-wide text-white flex items-center gap-2">
+                PANTALLA DE COCINA / BARRA (KDS)
+                <span class="bg-emerald-500/20 text-emerald-400 text-[10px] font-extrabold px-2 py-0.5 rounded-full border border-emerald-500/30">EN VIVO</span>
+            </h1>
+            <p class="text-xs text-slate-400">Las órdenes y cancelaciones aparecen automáticamente.</p>
+        </div>
+    </div>
+
+    <div class="flex items-center gap-2">
+            <span id="lblContadorPendientes" class="bg-amber-500 text-slate-950 font-black px-3 py-1.5 rounded-xl text-xs">
+                0 Pendientes
+            </span>
+        <span id="lblContadorCanceladas" class="hidden bg-rose-600 text-white font-black px-3 py-1.5 rounded-xl text-xs animate-pulse">
+                0 Canceladas
+            </span>
+        <button onclick="cargarComandasKDS()" class="bg-slate-700 hover:bg-slate-600 text-slate-200 font-bold px-3 py-1.5 rounded-xl text-xs flex items-center gap-1.5">
+            <i class="fa-solid fa-rotate"></i> Actualizar
+        </button>
+    </div>
+</div>
+
+<!-- Grid de Comandas -->
+<div id="gridComandasKDS" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4"></div>
+
+<script>
+    const channelKDS = window.BroadcastChannel ? new BroadcastChannel('kds_comandas_channel') : null;
+
+    if (channelKDS) {
+        channelKDS.onmessage = function(event) {
+            if (event.data && (event.data.tipo === 'NUEVA_COMANDA' || event.data.tipo === 'ANULAR_COMANDA')) {
+                cargarComandasKDS();
+            }
+        };
+    }
+
+    // Sincronización automática entre pestañas/ventanas cuando cambia localStorage
+    window.addEventListener('storage', function(e) {
+        if (e.key && e.key.startsWith('comanda_')) {
+            cargarComandasKDS();
+        }
+    });
+
+    window.onload = function() {
+        cargarComandasKDS();
+        // Respaldo cada 3 segundos por si se actualiza desde backend
+        setInterval(cargarComandasKDS, 3000);
+    };
+
+    function cargarComandasKDS() {
+        const grid = document.getElementById('gridComandasKDS');
+        let comandas = [];
+
+        for (let i = 0; i < localStorage.length; i++) {
+            const k = localStorage.key(i);
+            if (k && k.startsWith('comanda_')) {
+                try {
+                    const c = JSON.parse(localStorage.getItem(k));
+                    if (!c || !c.items) continue;
+
+                    const esCancelada = (c.estado === 'CANCELADA' || c.anulada === true);
+                    const esPendiente = (c.estado === 'PENDIENTE' && !esCancelada);
+
+                    // Mostrar pendientes Y canceladas que el barista aún no haya confirmado con "Enterado"
+                    if (esPendiente || (esCancelada && !c.ocultaEnKDS)) {
+                        comandas.push(c);
+                    }
+                } catch(e){}
+            }
+        }
+
+        // Ordenar: primero las canceladas (para alerta inmediata) y luego por orden de llegada
+        comandas.sort((a, b) => {
+            const cancA = (a.estado === 'CANCELADA' || a.anulada) ? 0 : 1;
+            const cancB = (b.estado === 'CANCELADA' || b.anulada) ? 0 : 1;
+            if (cancA !== cancB) return cancA - cancB;
+            return a.id.localeCompare(b.id);
+        });
+
+        const totalPendientes = comandas.filter(c => c.estado === 'PENDIENTE' && !c.anulada).length;
+        const totalCanceladas = comandas.filter(c => c.estado === 'CANCELADA' || c.anulada).length;
+
+        document.getElementById('lblContadorPendientes').innerText = `${totalPendientes} Pendiente${totalPendientes === 1 ? '' : 's'}`;
+        const badgeCanc = document.getElementById('lblContadorCanceladas');
+        if (totalCanceladas > 0) {
+            badgeCanc.innerText = `⛔ ${totalCanceladas} Cancelada${totalCanceladas === 1 ? '' : 's'}`;
+            badgeCanc.classList.remove('hidden');
+        } else {
+            badgeCanc.classList.add('hidden');
+        }
+
+        if (comandas.length === 0) {
+            grid.innerHTML = `
+                <div class="col-span-full bg-slate-800/60 border border-slate-700 rounded-2xl p-12 text-center text-slate-400">
+                    <i class="fa-solid fa-mug-saucer text-4xl mb-3 text-slate-500"></i>
+                    <p class="font-extrabold text-sm text-slate-300">Todo despachado — Sin pedidos pendientes</p>
+                    <p class="text-xs mt-1">Las nuevas órdenes de caja aparecerán aquí automáticamente.</p>
+                </div>
+            `;
+            return;
+        }
+
+        grid.innerHTML = '';
+
+        comandas.forEach(c => {
+            const esCancelada = (c.estado === 'CANCELADA' || c.anulada === true);
+            const numTicket = String(c.id || '').slice(-4);
+            const esLlevar = String(c.mesa || '').toLowerCase().includes('llevar');
+
+            const claseCard = esCancelada
+                ? 'bg-rose-950/90 border-2 border-rose-500 shadow-xl shadow-rose-950/50'
+                : 'bg-slate-800 border border-slate-700 shadow-lg';
+
+            const headerColor = esCancelada
+                ? 'bg-rose-600 text-white'
+                : (esLlevar ? 'bg-cyan-600 text-white' : 'bg-amber-500 text-slate-950');
+
+            let itemsHtml = '';
+            (c.items || []).forEach(it => {
+                const extrasTxt = (it.extras && it.extras.length > 0)
+                    ? `<p class="text-xs font-bold ${esCancelada ? 'text-rose-300' : 'text-amber-300'} pl-6 mt-0.5">+ ${it.extras.join(', ')}</p>`
+                    : '';
+                const comensalTxt = (it.comensal && it.comensal !== 'Persona 1')
+                    ? `<span class="text-[10px] bg-slate-700 text-slate-200 px-1.5 py-0.5 rounded ml-1">${it.comensal}</span>`
+                    : '';
+
+                itemsHtml += `
+                    <div class="py-2 border-b border-slate-700/70 last:border-none ${esCancelada ? 'line-through opacity-75' : ''}">
+                        <div class="flex items-start gap-2">
+                            <span class="font-black text-sm ${esCancelada ? 'text-rose-300' : 'text-amber-400'}">${it.cantidad}x</span>
+                            <span class="font-extrabold text-sm text-white leading-snug">${it.nombre} ${comensalTxt}</span>
+                        </div>
+                        ${extrasTxt}
+                    </div>
+                `;
+            });
+
+            const avisoCancelacionHtml = esCancelada ? `
+                <div class="bg-rose-600/30 border border-rose-500 rounded-xl p-2.5 text-xs text-rose-100 space-y-0.5">
+                    <p class="font-black uppercase text-white flex items-center gap-1.5 animate-pulse">
+                        <i class="fa-solid fa-triangle-exclamation"></i> ¡ORDEN CANCELADA — NO PREPARAR!
+                    </p>
+                    <p class="text-[11px]">Motivo: <b>${c.motivoAnulacion || 'Cancelado en caja'}</b></p>
+                </div>
+            ` : '';
+
+            const botonHtml = esCancelada
+                ? `<button onclick="ocultarComandaCancelada('${c.id}')" class="w-full py-3 bg-rose-600 hover:bg-rose-500 active:scale-95 text-white font-black rounded-xl text-xs shadow flex items-center justify-center gap-2 cursor-pointer">
+                       <i class="fa-solid fa-eye-slash"></i> Enterado — Quitar Aviso
+                   </button>`
+                : `<button onclick="marcarDespachado('${c.id}')" class="w-full py-3 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white font-black rounded-xl text-xs shadow flex items-center justify-center gap-2 cursor-pointer">
+                       <i class="fa-solid fa-check-double"></i> Marcar Despachado
+                   </button>`;
+
+            grid.innerHTML += `
+                <div class="${claseCard} rounded-2xl overflow-hidden flex flex-col justify-between transition">
+                    <div>
+                        <div class="${headerColor} px-3.5 py-2.5 flex justify-between items-center">
+                            <div>
+                                <span class="font-black text-xs uppercase tracking-wider">${esCancelada ? '⛔ CANCELADO' : c.mesa}</span>
+                                <p class="text-[11px] font-bold opacity-90">${c.cliente || 'Cliente'}</p>
+                            </div>
+                            <div class="text-right">
+                                <span class="font-black text-xs">#${numTicket}</span>
+                                <p class="text-[10px] font-bold opacity-85">${c.fecha || ''}</p>
+                            </div>
+                        </div>
+
+                        <div class="p-3.5 space-y-2">
+                            ${avisoCancelacionHtml}
+                            <div>${itemsHtml}</div>
+                        </div>
+                    </div>
+
+                    <div class="p-3 bg-slate-900/40 border-t border-slate-700/60">
+                        ${botonHtml}
+                    </div>
+                </div>
+            `;
+        });
+    }
+
+    function marcarDespachado(idComanda) {
+        const raw = localStorage.getItem(idComanda);
+        if (raw) {
+            const c = JSON.parse(raw);
+            c.estado = 'DESPACHADA';
+            localStorage.setItem(idComanda, JSON.stringify(c));
+        }
+        cargarComandasKDS();
+    }
+
+    function ocultarComandaCancelada(idComanda) {
+        const raw = localStorage.getItem(idComanda);
+        if (raw) {
+            const c = JSON.parse(raw);
+            c.ocultaEnKDS = true;
+            localStorage.setItem(idComanda, JSON.stringify(c));
+        }
+        cargarComandasKDS();
+    }
+</script>
+</body>
+</html>

@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Reportes de Caja y Ventas - Administrador</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body class="bg-slate-100 p-4 md:p-6 font-sans min-h-screen space-y-6">
+
+<!-- Encabezado Administrador -->
+<div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
+    <div>
+        <h2 class="text-xl font-black text-slate-800 flex items-center gap-2">
+            <i class="fa-solid fa-chart-line text-indigo-600"></i> Panel Financiero y Auditoría de Caja
+        </h2>
+        <p class="text-xs text-slate-500">Supervisión de ingresos por Efectivo, Tarjeta y Transferencia + Historial de Cierres Nocturnos</p>
+    </div>
+    <div class="flex gap-2">
+        <button onclick="generarReporteCaja()" class="bg-slate-800 hover:bg-slate-700 text-white font-bold px-3 py-2 rounded-xl text-xs flex items-center gap-1.5 shadow">
+            <i class="fa-solid fa-rotate-right"></i> Actualizar Datos
+        </button>
+    </div>
+</div>
+
+<!-- Tarjetas KPI (Acumulado Total) -->
+<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+    <div class="bg-white p-4 rounded-2xl shadow-sm border border-slate-200/80">
+        <div class="flex justify-between items-center text-slate-500 mb-2">
+            <span class="text-xs font-bold uppercase">Total Vendido</span>
+            <i class="fa-solid fa-sack-dollar text-emerald-500 text-lg"></i>
+        </div>
+        <p class="text-2xl font-black text-slate-800" id="kpiTotalVentas">Q 0.00</p>
+        <span class="text-[10px] text-emerald-600 font-bold" id="kpiTotalComandas">0 Comandas cobradas</span>
+    </div>
+
+    <div class="bg-white p-4 rounded-2xl shadow-sm border border-slate-200/80">
+        <div class="flex justify-between items-center text-slate-500 mb-2">
+            <span class="text-xs font-bold uppercase">Pagos en Efectivo</span>
+            <i class="fa-solid fa-money-bill-wave text-emerald-600 text-lg"></i>
+        </div>
+        <p class="text-2xl font-black text-emerald-700" id="kpiVentasEfectivo">Q 0.00</p>
+        <span class="text-[10px] text-slate-400 font-bold" id="kpiFondoInicial">Fondo caja actual: Q 0.00</span>
+    </div>
+
+    <div class="bg-white p-4 rounded-2xl shadow-sm border border-slate-200/80">
+        <div class="flex justify-between items-center text-slate-500 mb-2">
+            <span class="text-xs font-bold uppercase">Pagos con Tarjeta</span>
+            <i class="fa-solid fa-credit-card text-indigo-500 text-lg"></i>
+        </div>
+        <p class="text-2xl font-black text-indigo-700" id="kpiVentasTarjeta">Q 0.00</p>
+        <span class="text-[10px] text-indigo-500 font-bold">POS Bancario</span>
+    </div>
+
+    <div class="bg-white p-4 rounded-2xl shadow-sm border border-slate-200/80">
+        <div class="flex justify-between items-center text-slate-500 mb-2">
+            <span class="text-xs font-bold uppercase">Transferencias</span>
+            <i class="fa-solid fa-building-columns text-cyan-600 text-lg"></i>
+        </div>
+        <p class="text-2xl font-black text-cyan-700" id="kpiVentasTransferencia">Q 0.00</p>
+        <span class="text-[10px] text-cyan-600 font-bold">Depósitos confirmados</span>
+    </div>
+</div>
+
+<!-- Gráficos de Análisis -->
+<div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+    <div class="lg:col-span-5 bg-white p-5 rounded-2xl shadow-sm border border-slate-200/80 flex flex-col justify-between">
+        <h3 class="text-xs font-extrabold text-slate-700 uppercase tracking-wider mb-4 flex items-center gap-2">
+            <i class="fa-solid fa-chart-pie text-indigo-600"></i> Distribución de Métodos de Pago
+        </h3>
+        <div class="relative w-full h-64 flex justify-center items-center">
+            <canvas id="chartMetodosPago"></canvas>
+        </div>
+    </div>
+
+    <div class="lg:col-span-7 bg-white p-5 rounded-2xl shadow-sm border border-slate-200/80 flex flex-col justify-between">
+        <h3 class="text-xs font-extrabold text-slate-700 uppercase tracking-wider mb-4 flex items-center gap-2">
+            <i class="fa-solid fa-chart-bar text-emerald-600"></i> Rendimiento por Categoría
+        </h3>
+        <div class="relative w-full h-64">
+            <canvas id="chartCategorias"></canvas>
+        </div>
+    </div>
+</div>
+
+<!-- TABLA: HISTORIAL DE CIERRES DE CAJA (NOCHE / AMANECER) -->
+<div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-200/80">
+    <h3 class="text-xs font-extrabold text-slate-700 uppercase tracking-wider mb-4 flex items-center gap-2">
+        <i class="fa-solid fa-vault text-rose-600"></i> Historial de Cierres de Caja (Saldo de Cierre / Apertura)
+    </h3>
+    <div class="overflow-x-auto">
+        <table class="w-full text-left text-xs text-slate-700">
+            <thead class="bg-slate-50 text-slate-500 uppercase font-bold border-b">
+            <tr>
+                <th class="p-3">Fecha Cierre</th>
+                <th class="p-3 text-right">Apertura</th>
+                <th class="p-3 text-right text-emerald-700">💵 Efectivo</th>
+                <th class="p-3 text-right text-indigo-700">💳 Tarjeta</th>
+                <th class="p-3 text-right text-cyan-700">🏛️ Transf.</th>
+                <th class="p-3 text-right">Cierre Gaveta</th>
+                <th class="p-3 text-center">Cuadre</th>
+            </tr>
+            </thead>
+            <tbody id="tbodyHistorialCierres" class="divide-y divide-slate-100"></tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Tabla Auditoría de Comandas -->
+<div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-200/80">
+    <h3 class="text-xs font-extrabold text-slate-700 uppercase tracking-wider mb-4 flex items-center gap-2">
+        <i class="fa-solid fa-list-check text-slate-600"></i> Auditoría Desglosada de Comandas
+    </h3>
+    <div class="overflow-x-auto">
+        <table class="w-full text-left text-xs text-slate-700">
+            <thead class="bg-slate-50 text-slate-500 uppercase font-bold border-b">
+            <tr>
+                <th class="p-3">ID Comanda</th>
+                <th class="p-3">Ubicación</th>
+                <th class="p-3">Cliente</th>
+                <th class="p-3">Método Pago</th>
+                <th class="p-3 text-right">Monto Total</th>
+            </tr>
+            </thead>
+            <tbody id="tbodyAuditoriaCaja" class="divide-y divide-slate-100"></tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+    let chartPagoInstance = null;
+    let chartCatInstance = null;
+
+    window.onload = function() {
+        generarReporteCaja();
+    };
+
+    function generarReporteCaja() {
+        const turno = JSON.parse(localStorage.getItem('estado_caja_turno') || '{"abierta":false,"montoInicial":0}');
+        let totalVentas = 0;
+        let ventasEfectivo = 0;
+        let ventasTarjeta = 0;
+        let ventasTransferencia = 0;
+        let numComandas = 0;
+
+        const categoriasTotales = {};
+        const listaAuditoria = [];
+
+        for (let i = 0; i < localStorage.length; i++) {
+            const clave = localStorage.key(i);
+            if (clave && clave.startsWith('comanda_')) {
+                try {
+                    const c = JSON.parse(localStorage.getItem(clave));
+                    if (c && c.items) {
+                        let totalComanda = 0;
+                        c.items.forEach(it => {
+                            const sub = (parseFloat(it.precio || it.precioVenta || 0) * (parseInt(it.cantidad) || 1));
+                            totalComanda += sub;
+
+                            const cat = (it.categoria || 'GENERAL').toUpperCase();
+                            categoriasTotales[cat] = (categoriasTotales[cat] || 0) + sub;
+                        });
+
+                        const metodo = (c.metodoPago || 'EFECTIVO').toUpperCase();
+                        if (metodo === 'TARJETA') {
+                            ventasTarjeta += totalComanda;
+                        } else if (metodo === 'TRANSFERENCIA') {
+                            ventasTransferencia += totalComanda;
+                        } else {
+                            ventasEfectivo += totalComanda;
+                        }
+
+                        totalVentas += totalComanda;
+                        numComandas++;
+                        listaAuditoria.push({ id: c.id, mesa: c.mesa, cliente: c.cliente, metodo: metodo, total: totalComanda });
+                    }
+                } catch(e){}
+            }
+        }
+
+        const inicial = turno.abierta ? parseFloat(turno.montoInicial || 0) : 0;
+        document.getElementById('kpiTotalVentas').innerText = `Q ${totalVentas.toFixed(2)}`;
+        document.getElementById('kpiTotalComandas').innerText = `${numComandas} comandas procesadas`;
+        document.getElementById('kpiVentasEfectivo').innerText = `Q ${ventasEfectivo.toFixed(2)}`;
+        document.getElementById('kpiFondoInicial').innerText = turno.abierta
+            ? `Caja Abierta (Fondo: Q ${inicial.toFixed(2)})`
+            : `Caja Cerrada actualmente`;
+        document.getElementById('kpiVentasTarjeta').innerText = `Q ${ventasTarjeta.toFixed(2)}`;
+        document.getElementById('kpiVentasTransferencia').innerText = `Q ${ventasTransferencia.toFixed(2)}`;
+
+        // Render Historial de Cierres
+        const historialCierres = JSON.parse(localStorage.getItem('historial_cierres_caja') || '[]');
+        const tbodyCierres = document.getElementById('tbodyHistorialCierres');
+        tbodyCierres.innerHTML = '';
+
+        if (historialCierres.length === 0) {
+            tbodyCierres.innerHTML = `<tr><td colspan="7" class="p-4 text-center text-slate-400">Aún no se han registrado cierres de caja.</td></tr>`;
+        } else {
+            historialCierres.forEach(cierre => {
+                const diff = parseFloat(cierre.diferencia || 0);
+                const badgeCuadre = Math.abs(diff) < 0.01
+                    ? `<span class="bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded font-bold text-[10px]">Exacto</span>`
+                    : (diff > 0
+                        ? `<span class="bg-indigo-100 text-indigo-800 px-2 py-0.5 rounded font-bold text-[10px]">+Q ${diff.toFixed(2)}</span>`
+                        : `<span class="bg-rose-100 text-rose-800 px-2 py-0.5 rounded font-bold text-[10px]">-Q ${Math.abs(diff).toFixed(2)}</span>`);
+
+                tbodyCierres.innerHTML += `
+                    <tr class="hover:bg-slate-50">
+                        <td class="p-3 font-bold text-slate-700">${cierre.fechaCierre}</td>
+                        <td class="p-3 text-right font-semibold text-slate-500">Q ${parseFloat(cierre.montoInicial).toFixed(2)}</td>
+                        <td class="p-3 text-right font-extrabold text-emerald-700">Q ${parseFloat(cierre.ventasEfectivo).toFixed(2)}</td>
+                        <td class="p-3 text-right font-extrabold text-indigo-700">Q ${parseFloat(cierre.ventasTarjeta).toFixed(2)}</td>
+                        <td class="p-3 text-right font-extrabold text-cyan-700">Q ${parseFloat(cierre.ventasTransferencia).toFixed(2)}</td>
+                        <td class="p-3 text-right font-black text-slate-900">Q ${parseFloat(cierre.montoCierre).toFixed(2)}</td>
+                        <td class="p-3 text-center">${badgeCuadre}</td>
+                    </tr>
+                `;
+            });
+        }
+
+        // Render Auditoría de Comandas
+        const tbody = document.getElementById('tbodyAuditoriaCaja');
+        tbody.innerHTML = '';
+        listaAuditoria.reverse().forEach(item => {
+            const badgeClass = item.metodo === 'TARJETA' ? 'bg-indigo-100 text-indigo-800' :
+                               item.metodo === 'TRANSFERENCIA' ? 'bg-cyan-100 text-cyan-800' : 'bg-emerald-100 text-emerald-800';
+            tbody.innerHTML += `
+                <tr class="hover:bg-slate-50">
+                    <td class="p-3 font-mono font-bold text-slate-500">${item.id}</td>
+                    <td class="p-3 font-bold">${item.mesa}</td>
+                    <td class="p-3">${item.cliente}</td>
+                    <td class="p-3"><span class="px-2 py-0.5 rounded font-black text-[10px] ${badgeClass}">${item.metodo}</span></td>
+                    <td class="p-3 text-right font-black text-slate-800">Q ${item.total.toFixed(2)}</td>
+                </tr>
+            `;
+        });
+
+        renderGraficoMetodosPago(ventasEfectivo, ventasTarjeta, ventasTransferencia);
+        renderGraficoCategorias(categoriasTotales);
+    }
+
+    function renderGraficoMetodosPago(efectivo, tarjeta, transferencia) {
+        const ctx = document.getElementById('chartMetodosPago').getContext('2d');
+        if (chartPagoInstance) chartPagoInstance.destroy();
+
+        chartPagoInstance = new Chart(ctx, {
+            type: 'doughnut',
+            data: {
+                labels: ['Efectivo', 'Tarjeta / POS', 'Transferencia'],
+                datasets: [{
+                    data: [efectivo, tarjeta, transferencia],
+                    backgroundColor: ['#10b981', '#6366f1', '#06b6d4'],
+                    borderWidth: 2,
+                    borderColor: '#ffffff'
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { position: 'bottom' } }
+            }
+        });
+    }
+
+    function renderGraficoCategorias(catData) {
+        const ctx = document.getElementById('chartCategorias').getContext('2d');
+        if (chartCatInstance) chartCatInstance.destroy();
+
+        const labels = Object.keys(catData);
+        const valores = Object.values(catData);
+
+        chartCatInstance = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: labels.length > 0 ? labels : ['Sin datos'],
+                datasets: [{
+                    label: 'Ventas Totales (Q)',
+                    data: valores.length > 0 ? valores : [0],
+                    backgroundColor: '#4f46e5',
+                    borderRadius: 8
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: { y: { beginAtZero: true } }
+            }
+        });
+    }
+</script>
+</body>
+</html>
